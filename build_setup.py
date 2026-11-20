@@ -30,8 +30,15 @@ _LOG: list[str] = []
 
 
 def _log(msg: str) -> None:
-    print(msg)
     _LOG.append(msg)
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        # На Windows stdout может быть в ANSI-кодировке — печатаем с заменой
+        try:
+            print(msg.encode("utf-8", "replace").decode("utf-8", "replace"))
+        except Exception:
+            pass
 
 
 def _write_log() -> None:
@@ -45,10 +52,16 @@ def _write_log() -> None:
 
 
 def main() -> int:
-    _log(f"[*] build_setup.py запущен: {sys.version}")
-    _log(f"[*] BASE = {BASE}")
+    # Кодировка stdout: на Windows при перенаправленном stdout (Actions)
+    # используется ANSI-кодировка, которая ломает печать кириллицы.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError, OSError):
+        pass
 
     try:
+        _log(f"[*] build_setup.py запущен: {sys.version}")
+        _log(f"[*] BASE = {BASE}")
         return _run()
     except Exception:
         _log("[!] Непредусмотренная ошибка сборки:")
