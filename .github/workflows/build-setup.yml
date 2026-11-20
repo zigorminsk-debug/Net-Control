@@ -41,6 +41,7 @@ jobs:
           python -m pip install pyinstaller
 
       - name: Сборка Net-Control.exe
+        shell: bash
         run: |
           python --version
           python -m PyInstaller --version
