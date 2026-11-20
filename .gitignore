@@ -1,0 +1,19 @@
+# Сборка
+/build/
+/dist/
+*.spec
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Данные приложения (результаты анализа)
+/data/
+
+# Проброс Webpack/npm (не используется, но на будущее)
+/node_modules/
+
+# Демо-снимки
+*.pcap

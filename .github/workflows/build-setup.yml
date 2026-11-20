@@ -1,0 +1,114 @@
+name: build-setup-exe
+
+# Сборка Net-Control в setup.exe и проверка ядра анализатора.
+#
+# Artifact со стеклянным setup.exe появляется в разделе Actions после
+# прогона workflow. Для релиза создайте аннотацию (tag) — при разметке
+# ветки tag v* автоматически создаётся GitHub Release со стеклом.
+
+on:
+  push:
+    branches: ["**"]
+    tags:
+      - "v*"
+  pull_request:
+
+# Разрешение для создания GitHub Release (job «Релиз при разметке tag»)
+permissions:
+  contents: write
+
+jobs:
+  smoke-test:
+    name: Проверка ядра (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Запуск smoke-теста анализатора
+        run: python tests/test_smoke.py
+
+  build-setup:
+    name: Сборка setup.exe (Windows)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Диагностика среды (маркер артефакта)
+        shell: bash
+        run: |
+          echo "diag: python=$(python --version 2>&1)" > diag.txt
+          echo "diag: pyinstaller=$(python -m PyInstaller --version 2>&1)" >> diag.txt
+          cat diag.txt
+
+      - name: Установка PyInstaller
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyinstaller==6.14.0"
+
+      - name: Сборка Net-Control.exe
+        shell: bash
+        env:
+          PYTHONUTF8: 1
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -x
+          python build_setup.py
+          rc=$?
+          echo "---- build.log (tail) ----"
+          if [ -f build.log ]; then tail -n 80 build.log; else echo "build.log не создан"; fi
+          echo "build_setup rc=$rc"
+          exit $rc
+
+      - name: Загрузка артефакта setup.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Net-Control-setup-exe
+          path: dist/Net-Control.exe
+          if-no-files-found: error
+
+      - name: Загрузка логов сборки (для диагностики сбоев)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-logs
+          path: |
+            build.log
+            diag.txt
+            dist/
+
+  release:
+    name: Релиз при разметке tag
+    needs: build-setup
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Установка PyInstaller
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyinstaller==6.14.0"
+      - name: Сборка Net-Control.exe
+        shell: bash
+        run: python build_setup.py
+
+      - name: Создание релиза
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Net-Control.exe
+          body: |
+            ## Net-Control — установка
+            Скачать `Net-Control.exe` и запустить. Интерфейс откроется в
+            браузере автоматически.
+            Подробности в README.md.
+          generate_release_notes: true
