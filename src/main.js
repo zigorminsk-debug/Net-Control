@@ -7,14 +7,32 @@ const { testRouter } = require('./router');
 const { detectLocalAddress } = require('./local-address');
 const { buildReport } = require('./report');
 const { parseCidrs } = require('./direction');
+const { createUpdateController } = require('./updater');
 const net = require('node:net');
 const collector = new Collector();
+let updates;
 function createWindow() {
   const window = new BrowserWindow({ width: 1440, height: 920, minWidth: 1000, minHeight: 700, backgroundColor: '#0b1015', title: 'Net Control', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   window.loadFile(path.join(__dirname, 'index.html'));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
 }
+ipcMain.handle('updates:status', () => updates.status());
+ipcMain.handle('updates:check', () => updates.check());
+ipcMain.handle('updates:install', async event => {
+  const state = updates.status();
+  if (state.status !== 'downloaded') return { ok: false, error: 'Обновление ещё не загружено.' };
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  if (!owner) return { ok: false, error: 'Окно приложения не найдено.' };
+  const result = await dialog.showMessageBox(owner, {
+    type: 'warning', title: 'Установка обновления', buttons: ['Отмена', 'Установить'], defaultId: 0, cancelId: 0,
+    message: `Установить Net Control ${state.availableVersion}?`,
+    detail: 'Приложение закроется и перезапустится. Текущие потоки из памяти будут потеряны. Установщик не подписан цифровой подписью: устанавливайте обновление только если доверяете этому GitHub-репозиторию.'
+  });
+  if (result.response !== 1) return { ok: false, canceled: true };
+  try { return updates.install() ? { ok: true } : { ok: false, error: 'Обновление больше не готово к установке.' }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
 ipcMain.handle('collector:start', (_event, options) => collector.start(options.address, Number(options.port)));
 ipcMain.handle('collector:stop', () => { collector.stop(); return collector.snapshot(); });
 ipcMain.handle('collector:snapshot', (_event, sort) => collector.snapshot(sort));
@@ -56,7 +74,13 @@ app.whenReady().then(async () => {
     const config = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'networks.json'), 'utf8'));
     if (Array.isArray(config.subnets) && config.subnets.every(s => typeof s === 'string')) collector.analyzer.setNetworks(config.subnets.join('\n'));
   } catch (err) { if (err.code !== 'ENOENT') console.error('Cannot load local subnets:', err.message); }
+  const { autoUpdater } = require('electron-updater');
+  updates = createUpdateController({ updater: autoUpdater, packaged: app.isPackaged, platform: process.platform, version: app.getVersion() });
   createWindow();
+  if (app.isPackaged && process.platform === 'win32') {
+    setTimeout(() => updates.check(), 10000);
+    setInterval(() => updates.check(), 6 * 60 * 60 * 1000);
+  }
 });
 app.on('window-all-closed', () => { collector.stop(); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

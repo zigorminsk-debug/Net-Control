@@ -34,9 +34,13 @@ jobs:
             Write-Output "::error::$line"
           }
           exit 1
+      - name: Verify update metadata
+        run: node scripts/verify-update.js
       - uses: actions/upload-artifact@v4
         with:
           name: Net-Control-Windows
-          path: dist/setup.exe
+          path: |
+            dist/setup.exe
+            dist/latest.yml
           if-no-files-found: error
           retention-days: 30

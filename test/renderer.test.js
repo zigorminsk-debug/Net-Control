@@ -16,6 +16,9 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
   const calls = []; const dom = new JSDOM(html, {runScripts:'outside-only'}); const win = dom.window;
   win.setInterval = () => 0;
   win.netControl = {
+    updateStatus: async () => ({status:'up-to-date',currentVersion:'1.1.0'}),
+    checkUpdates: async () => ({status:'downloaded',currentVersion:'1.1.0',availableVersion:'1.2.0'}),
+    installUpdate: async () => ({ok:true}),
     snapshot: async sort => { calls.push(sort); return {running:true,port:2055,address:'192.168.88.1',lastPacket:null,datagrams:0,error:'',...a.snapshot(Date.now(),sort)}; },
     host: async ip => a.hostDetail(ip),
     localAddress: async () => ({address:'10.0.0.50',interfaceName:'Ethernet',interfaces:[{address:'10.0.0.50',name:'Ethernet'}]}),
@@ -40,6 +43,12 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
     assert.match(doc.getElementById('host-in-bytes').textContent,/50 Б/);
     assert.equal(doc.querySelectorAll('#host-records tr').length,31);
     doc.getElementById('back-dashboard').click();
+    doc.querySelector('[data-view=about]').click();
+    assert.ok(doc.getElementById('about').classList.contains('active-view'));
+    assert.match(doc.getElementById('about-version').textContent,/1\.1\.0/);
+    doc.getElementById('check-updates').click(); await settle();
+    assert.equal(doc.getElementById('install-update').hidden,false);
+    doc.querySelector('[data-view=dashboard]').click();
     doc.getElementById('save-report').click(); await settle();
     assert.match(doc.getElementById('report-status').textContent,/Отчёт сохранён/);
     doc.getElementById('subnets').value='192.168.0.0/16'; doc.getElementById('save-subnets').click(); await settle();

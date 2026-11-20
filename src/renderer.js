@@ -10,12 +10,13 @@ function switchView(view) {
   if (view !== 'host-detail') selectedHost = '';
   document.querySelectorAll('.view').forEach(el => el.classList.toggle('active-view', el.id === view));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === view));
-  $('breadcrumb').textContent = view === 'dashboard' ? 'Обзор сети' : view === 'host-detail' ? 'Анализ хоста' : 'Подключение';
+  $('breadcrumb').textContent = view === 'dashboard' ? 'Обзор сети' : view === 'host-detail' ? 'Анализ хоста' : view === 'about' ? 'О программе' : 'Подключение';
 }
 document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
 $('open-settings').addEventListener('click', () => switchView('settings'));
 $('banner-action').addEventListener('click', () => switchView('settings'));
 $('direction-settings').addEventListener('click', () => { switchView('settings'); $('subnets').focus(); });
+$('update-top').addEventListener('click', () => switchView('about'));
 function message(id, text, error = false) { const el = $(id); el.textContent = text; el.classList.toggle('error', error); }
 function usableIPv4(value) {
   const parts = value.split('.');
@@ -80,6 +81,42 @@ $('test-router').addEventListener('click', async () => {
   } catch (err) { message('router-message', `Не удалось подключиться: ${err.message}`, true); }
   finally { button.disabled = false; }
 });
+function renderUpdate(state) {
+  $('about-version').textContent = `Версия ${state.currentVersion}`;
+  $('app-version').textContent = `NET CONTROL · V${state.currentVersion}`;
+  const labels = {
+    idle: 'Автоматическая проверка запланирована.', checking: 'Проверяем GitHub Releases…',
+    'up-to-date': 'Установлена последняя доступная стабильная версия.',
+    available: `Доступна версия ${state.availableVersion}. Подготовка загрузки…`,
+    downloading: `Загружается версия ${state.availableVersion}: ${Math.round(state.progress)}%.`,
+    downloaded: `Версия ${state.availableVersion} загружена и готова к установке.`,
+    error: `Не удалось проверить или загрузить обновление: ${state.error}`,
+    disabled: 'Автообновление доступно только в установленной Windows-версии, не в режиме разработки.'
+  };
+  $('update-status').textContent = labels[state.status] || 'Неизвестное состояние обновления.';
+  $('update-status').classList.toggle('error', state.status === 'error');
+  $('check-updates').disabled = ['disabled', 'checking', 'available', 'downloading', 'downloaded'].includes(state.status);
+  $('install-update').hidden = state.status !== 'downloaded';
+  $('update-top').hidden = state.status !== 'downloaded';
+}
+async function refreshUpdate() {
+  try { renderUpdate(await api.updateStatus()); }
+  catch (err) { message('update-status', `Не удалось получить состояние обновления: ${err.message}`, true); }
+}
+$('check-updates').addEventListener('click', async () => {
+  $('check-updates').disabled = true;
+  try { renderUpdate(await api.checkUpdates()); }
+  catch (err) { message('update-status', `Ошибка проверки: ${err.message}`, true); }
+});
+$('install-update').addEventListener('click', async () => {
+  $('install-update').disabled = true;
+  try {
+    const result = await api.installUpdate();
+    if (!result.ok && !result.canceled) message('update-status', `Не удалось установить обновление: ${result.error}`, true);
+  } catch (err) { message('update-status', `Не удалось установить обновление: ${err.message}`, true); }
+  finally { $('install-update').disabled = false; }
+});
+refreshUpdate(); setInterval(refreshUpdate, 2000);
 api.subnets().then(networks => { $('subnets').value = networks.join('\n'); }).catch(err => message('subnets-message', `Не удалось загрузить подсети: ${err.message}`, true));
 $('save-subnets').addEventListener('click', async () => {
   $('save-subnets').disabled = true;

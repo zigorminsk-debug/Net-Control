@@ -1,6 +1,9 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('netControl', {
+  updateStatus: () => ipcRenderer.invoke('updates:status'),
+  checkUpdates: () => ipcRenderer.invoke('updates:check'),
+  installUpdate: () => ipcRenderer.invoke('updates:install'),
   start: options => ipcRenderer.invoke('collector:start', options),
   stop: () => ipcRenderer.invoke('collector:stop'),
   snapshot: sort => ipcRenderer.invoke('collector:snapshot', sort),

@@ -1,0 +1,33 @@
+name: Publish Windows release
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate version tag
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag must equal v plus the stable version in package.json.' }
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist:win
+      - run: node scripts/verify-update.js
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME dist/setup.exe dist/latest.yml --verify-tag --title "Net Control $env:GITHUB_REF_NAME" --notes "Windows x64 installer and auto-update metadata. The installer is unsigned."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

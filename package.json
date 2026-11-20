@@ -1,6 +1,6 @@
 {
   "name": "net-control",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Локальный анализ потоков MikroTik",
   "main": "src/main.js",
   "author": "Net Control",
@@ -13,6 +13,7 @@
   "devDependencies": {
     "electron": "^35.7.5",
     "electron-builder": "^26.0.12",
+    "js-yaml": "^4.3.2",
     "jsdom": "^31.0.1"
   },
   "build": {
@@ -43,6 +44,17 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zigorminsk-debug",
+        "repo": "Net-Control",
+        "private": false
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }
