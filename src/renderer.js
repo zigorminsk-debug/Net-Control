@@ -3,6 +3,9 @@ const $ = id => document.getElementById(id);
 const api = window.netControl;
 let selectedHost = '';
 let selectedCategory = '';
+let selectedThreat = '';
+let reputationLoaded = false;
+let reputationStatus = null;
 let historyLoaded = false;
 let manualLocal = false;
 let detectRevision = 0;
@@ -11,9 +14,10 @@ let refreshRevision = 0;
 function switchView(view) {
   if (view !== 'host-detail') selectedHost = '';
   if (view !== 'category-detail') selectedCategory = '';
+  if (view !== 'threat-detail') selectedThreat = '';
   document.querySelectorAll('.view').forEach(el => el.classList.toggle('active-view', el.id === view));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === view));
-  $('breadcrumb').textContent = view === 'dashboard' ? 'Обзор сети' : view === 'host-detail' ? 'Анализ хоста' : view === 'category-detail' ? 'Тип трафика' : view === 'about' ? 'О программе' : 'Подключение';
+  $('breadcrumb').textContent = view === 'dashboard' ? 'Обзор сети' : view === 'host-detail' ? 'Анализ хоста' : view === 'category-detail' ? 'Тип трафика' : view === 'threat-detail' ? 'Подозрительная активность' : view === 'about' ? 'О программе' : 'Подключение';
 }
 document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
 $('open-settings').addEventListener('click', () => switchView('settings'));
@@ -130,6 +134,41 @@ $('install-update').addEventListener('click', async () => {
   finally { $('install-update').disabled = false; }
 });
 refreshUpdate(); setInterval(refreshUpdate, 2000);
+function renderReputation(state) {
+  reputationStatus = state;
+  if (!reputationLoaded) { $('reputation-enabled').checked = state.enabled; reputationLoaded = true; }
+  $('refresh-reputation').disabled = !state.enabled || state.refreshing;
+  const active = state.feeds.filter(f => f.active).length;
+  message('reputation-status', state.error ? `Ошибка кэша: ${state.error}` : !state.enabled ? 'Базы выключены; совпадения не анализируются.' : state.refreshing ? 'Загружаем и проверяем базы…' : `Активно баз: ${active} из ${state.feeds.length}. Совпадения вычисляются локально.`, !!state.error);
+  const root = $('reputation-feeds'); root.replaceChildren();
+  for (const feed of state.feeds) {
+    const box = document.createElement('div'); box.className = `reputation-feed${feed.error || (state.enabled && !feed.active) ? ' error' : ''}`;
+    const title = document.createElement('b'); title.textContent = `${feed.name} · ${feed.active ? 'активна' : 'не используется'}`; box.appendChild(title);
+    const desc = document.createElement('div'); desc.textContent = `${feed.description} Записей: ${feed.count.toLocaleString('ru-RU')}.`; box.appendChild(desc);
+    const dates = document.createElement('div'); dates.textContent = `Обновление источника: ${feed.sourceUpdatedAt ? new Date(feed.sourceUpdatedAt).toLocaleString('ru-RU') : 'неизвестно'} · загрузка: ${feed.fetchedAt ? new Date(feed.fetchedAt).toLocaleString('ru-RU') : 'не выполнялась'}.`; box.appendChild(dates);
+    if (feed.error) { const error = document.createElement('div'); error.textContent = `Последняя ошибка: ${feed.error}`; box.appendChild(error); }
+    root.appendChild(box);
+  }
+}
+async function refreshReputationStatus() {
+  try { renderReputation(await api.reputation()); }
+  catch (err) { message('reputation-status', `Ошибка: ${err.message}`, true); }
+}
+$('save-reputation').addEventListener('click', async () => {
+  try { const result = await api.enableReputation($('reputation-enabled').checked); if (!result.ok) throw new Error(result.error); await refreshReputationStatus(); await refresh(); }
+  catch (err) { message('reputation-status', `Ошибка: ${err.message}`, true); }
+});
+$('refresh-reputation').addEventListener('click', async () => {
+  $('refresh-reputation').disabled = true; message('reputation-status', 'Загружаем базы с GitHub…');
+  try { const result = await api.refreshReputation(); if (!result.ok) throw new Error(result.error); renderReputation(result); await refresh(); }
+  catch (err) { message('reputation-status', `Ошибка: ${err.message}`, true); $('refresh-reputation').disabled = false; }
+});
+$('clear-reputation').addEventListener('click', async () => {
+  if (!window.confirm('Очистить локальный кэш баз репутации?')) return;
+  try { const result = await api.clearReputation(); if (!result.ok) throw new Error(result.error); await refreshReputationStatus(); await refresh(); }
+  catch (err) { message('reputation-status', `Ошибка: ${err.message}`, true); }
+});
+refreshReputationStatus(); setInterval(refreshReputationStatus, 10000);
 const policyKeys = ['scanDestinations','smtpDestinations','minerRecords','minerMinutes','ddosPackets','ddosBytesMB','ddosSources','excluded','mailServers','poolAddresses'];
 api.policy().then(policy => { for (const key of policyKeys) $(`policy-${key}`).value = policy[key]; }).catch(err => message('policy-message', err.message, true));
 $('save-policy').addEventListener('click', async () => {
@@ -151,6 +190,7 @@ async function refreshHistory() {
     const data = await api.history();
     if (!historyLoaded) { $('history-enabled').checked = data.enabled; historyLoaded = true; }
     $('history-note').textContent = data.error ? `Ошибка истории: ${data.error}` : `${data.enabled ? 'Запись включена' : 'Запись выключена'} · ${data.eventCount} событий · показаны последние ${data.events.length}. Карточка IP показывает только текущее окно.`;
+    renderRankChart('daily-chart', data.days.slice(0, 14).reverse().map(d => ({ label: new Date(d.time).toISOString().slice(0,10), value:d.bytes, flows:d.flows })), false, data.enabled ? 'Пока нет сохранённых данных по дням.' : 'История выключена; сохранённые данные отсутствуют.');
     const tbody = $('history-list'); tbody.replaceChildren();
     if (!data.events.length) { const row = document.createElement('tr'); const cell = textCell(row, 'Нет сохранённых событий'); cell.colSpan = 4; cell.className = 'empty'; tbody.appendChild(row); }
     for (const e of data.events) { const row = document.createElement('tr'); textCell(row, new Date(e.time).toLocaleString('ru-RU')); textCell(row, e.type); const ip = document.createElement('td'); ip.appendChild(hostButton(e.ip)); row.appendChild(ip); const detail = textCell(row, e.detail + (e.device ? ` · DHCP: ${e.device.name || 'без имени'} ${e.device.mac || ''} (снимок ${new Date(e.device.observedAt).toLocaleString('ru-RU')})` : '')); detail.className = 'history-detail'; tbody.appendChild(row); }
@@ -222,6 +262,49 @@ function renderCategories(id, categories) {
     box.append(line, sub, track); root.appendChild(box);
   }
 }
+const threatNames = { miner:'Возможный майнинг', spam:'Возможный спам', ddos:'Возможный DDoS / входящая атака', reputation:'Совпадение с базами репутации' };
+document.querySelectorAll('.threat-tile').forEach(button => button.addEventListener('click', () => openThreat(button.dataset.threat)));
+async function openThreat(id) {
+  selectedThreat = id; switchView('threat-detail'); $('threat-title').textContent = threatNames[id];
+  try { const data = await api.securityDetail(id); if (selectedThreat === id) renderThreat(data); }
+  catch (err) { $('threat-detail-note').textContent = `Ошибка: ${err.message}`; }
+}
+$('back-threat').addEventListener('click', () => switchView('dashboard'));
+function renderThreat(s) {
+  $('threat-title').textContent = threatNames[s.id]; $('threat-host-count').textContent = s.hostCount.toLocaleString('ru-RU'); $('threat-flow-count').textContent = s.count.toLocaleString('ru-RU'); $('threat-bytes').textContent = formatBytes(s.bytes);
+  $('threat-detail-note').textContent = s.id === 'ddos' ? 'Все входящие или исходящие записи, использованные для расчёта нагрузки у отмеченного хоста. Не каждый поток является атакой.' : 'Только записи, участвовавшие в расчёте активных сигналов за последние 5 минут. Не доказательство угрозы.';
+  $('threat-record-note').textContent = `Показано ${s.records.length} из ${s.count} записей. Сигналы пропадают после выхода данных из окна.`;
+  const hosts = $('threat-hosts'); hosts.replaceChildren();
+  if (!s.hosts.length) { const row = document.createElement('tr'); const cell = textCell(row, 'Нет активных сигналов. Проверьте локальные подсети и состояние баз.'); cell.colSpan = 5; cell.className = 'empty'; hosts.appendChild(row); }
+  for (const host of s.hosts) {
+    const row = document.createElement('tr'); const cell = document.createElement('td'); cell.appendChild(hostButton(host.ip)); row.appendChild(cell);
+    const evidence = document.createElement('td'); for (const alert of host.alerts) { const line = document.createElement('div'); line.className = 'history-detail'; line.textContent = `${alert.type}: ${alert.detail} ${alert.recommendation || ''}`; evidence.appendChild(line); } row.appendChild(evidence);
+    textCell(row, host.peers); textCell(row, host.flows); textCell(row, formatBytes(host.bytes)); hosts.appendChild(row);
+  }
+  const records = $('threat-records'); records.replaceChildren();
+  if (!s.records.length) { const row = document.createElement('tr'); const cell = textCell(row, 'Нет записей в текущем окне'); cell.colSpan = 5; cell.className = 'empty'; records.appendChild(row); }
+  for (const f of s.records) {
+    const row = document.createElement('tr'); textCell(row, new Date(f.time).toLocaleTimeString('ru-RU'));
+    for (const [ip,port] of [[f.src,f.srcPort],[f.dst,f.dstPort]]) { const cell = document.createElement('td'); cell.append(hostButton(ip), document.createTextNode(`:${port}`)); row.appendChild(cell); }
+    textCell(row, `${f.direction === 'outgoing' ? 'Исходящий' : 'Входящий'}${f.evidence ? ` · ${f.evidence}` : ''}`); textCell(row, formatBytes(f.bytes)); records.appendChild(row);
+  }
+}
+function renderRankChart(id, entries, clickable, emptyText) {
+  const root = $(id); root.replaceChildren();
+  if (!entries.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = emptyText; root.appendChild(empty); return; }
+  const max = Math.max(1, ...entries.map(x => x.value));
+  for (const item of entries) {
+    const row = document.createElement('div'); row.className = 'rank-row';
+    const label = clickable ? hostButton(item.label) : document.createElement('span'); if (!clickable) label.textContent = item.label;
+    const track = document.createElement('div'); track.className = 'rank-track'; const fill = document.createElement('div'); fill.className = 'rank-fill'; fill.style.width = `${item.value / max * 100}%`; track.appendChild(fill);
+    const value = document.createElement('span'); value.className = 'rank-value'; value.textContent = formatBytes(item.value); value.title = `${item.flows} записей`;
+    row.append(label, track, value); root.appendChild(row);
+  }
+}
+function renderTimeChart(id, values, formatter) {
+  const root = $(id); root.replaceChildren(); const max = Math.max(1, ...values);
+  for (const value of values) { const bar = document.createElement('div'); bar.className = 'bar'; bar.style.height = `${Math.max(1, value / max * 100)}%`; bar.title = formatter(value); root.appendChild(bar); }
+}
 async function openCategory(id) {
   selectedCategory = id; switchView('category-detail');
   try { const data = await api.category(id); if (selectedCategory === id) renderCategory(data); }
@@ -283,6 +366,13 @@ function render(s) {
   if (!s.hosts.length) { const row = document.createElement('tr'), cell = document.createElement('td'); cell.colSpan = 4; cell.className = 'empty'; cell.textContent = 'Пока нет данных о потоках'; row.appendChild(cell); tbody.appendChild(row); }
   for (const host of s.hosts) { const row = document.createElement('tr'); const hostCell = document.createElement('td'); hostCell.appendChild(hostButton(host.ip)); row.appendChild(hostCell); textCell(row, host.destinations); textCell(row, host.flows); textCell(row, formatBytes(host.bytes)); tbody.appendChild(row); }
   renderCategories('categories-list', s.categories);
+  const activeFeeds = reputationStatus?.feeds?.filter(f => f.active).length || 0;
+  for (const id of ['miner','spam','ddos','reputation']) $(`threat-${id}`).textContent = s.networks.length && (id !== 'reputation' || activeFeeds > 0) ? s.securityGroups[id].toLocaleString('ru-RU') : '—';
+  $('threat-note').textContent = !s.networks.length ? 'Укажите локальные подсети в настройках, чтобы включить анализ сигналов.' : `Число — локальные хосты с активными сигналами. Активных баз репутации: ${activeFeeds}. Сигналы не доказывают угрозу.`;
+  renderTimeChart('volume-chart', s.byteBuckets, value => formatBytes(value));
+  renderRankChart('top-host-chart', s.topTraffic.map(h => ({label:h.ip, value:h.bytes, flows:h.flows})), true, 'Пока нет потоков.');
+  const totalDirection = Object.values(s.directions).reduce((sum,item) => sum + item.bytes,0); const directionChart = $('direction-chart'); directionChart.replaceChildren();
+  for (const item of Object.values(s.directions)) { const part = document.createElement('span'); part.style.width = `${totalDirection ? item.bytes / totalDirection * 100 : 0}%`; part.title = `${item.label}: ${formatBytes(item.bytes)}`; directionChart.appendChild(part); }
   $('direction-note').textContent = s.networks.length ? `Относительно подсетей: ${s.networks.join(', ')} · IPv4` : 'Укажите локальные IPv4-подсети в настройках, чтобы определить направления.';
   const directionList = $('directions-list'); directionList.replaceChildren();
   for (const item of Object.values(s.directions)) {
@@ -295,5 +385,5 @@ function render(s) {
   const chart = $('chart'); chart.replaceChildren(); const max = Math.max(1, ...s.buckets);
   for (const count of s.buckets) { const bar = document.createElement('div'); bar.className = 'bar'; bar.style.height = `${Math.max(1, count / max * 100)}%`; bar.title = `${count} потоков`; chart.appendChild(bar); }
 }
-async function refresh() { const revision = ++refreshRevision; try { const data = await api.snapshot(hostSort); if (revision !== refreshRevision) return; render(data); const ip = selectedHost; if (ip) { const detail = await api.host(ip); if (revision === refreshRevision && selectedHost === ip) renderHost(detail); } const category = selectedCategory; if (category) { const detail = await api.category(category); if (revision === refreshRevision && selectedCategory === category) renderCategory(detail); } } catch (err) { message('collector-message', err.message, true); } }
+async function refresh() { const revision = ++refreshRevision; try { const data = await api.snapshot(hostSort); if (revision !== refreshRevision) return; render(data); const ip = selectedHost; if (ip) { const detail = await api.host(ip); if (revision === refreshRevision && selectedHost === ip) renderHost(detail); } const category = selectedCategory; if (category) { const detail = await api.category(category); if (revision === refreshRevision && selectedCategory === category) renderCategory(detail); } const threat = selectedThreat; if (threat) { const detail = await api.securityDetail(threat); if (revision === refreshRevision && selectedThreat === threat) renderThreat(detail); } } catch (err) { message('collector-message', err.message, true); } }
 refresh(); setInterval(refresh, 2000); refreshHistory(); setInterval(refreshHistory, 10000);

@@ -35,3 +35,14 @@ test('category details include all matching sources and bounded records', () => 
   a.add([{...base,src:'10.0.0.1'}, {...base,src:'10.0.0.2'}, {...base,src:'10.0.0.2',dstPort:443}],now);
   const c = a.categoryDetail('mail',now); assert.equal(c.count,2); assert.equal(c.hostCount,2); assert.equal(c.records.length,2); assert.throws(()=>a.categoryDetail('unknown-category'));
 });
+test('suspicion drilldown only includes contributing mail, mining and DDoS flows', () => {
+  const a = new Analyzer(); a.setNetworks('10.0.0.0/24'); const now=Date.now();
+  const mail=Array.from({length:10},(_,i)=>({...base,dst:`8.8.8.${i+1}`,bytes:10,packets:1}));
+  const miners=Array.from({length:5},()=>({...base,dstPort:3333,bytes:20,packets:1}));
+  const unrelated={...base,dstPort:443,bytes:30,packets:1}; a.add([...mail,...miners,unrelated],now);
+  assert.deepEqual(a.snapshot(now).securityGroups,{miner:1,spam:1,ddos:0,reputation:0});
+  const s=a.securityDetail('spam',now),m=a.securityDetail('miner',now);
+  assert.equal(s.count,10); assert.equal(s.bytes,100); assert.ok(s.records.every(f=>f.dstPort===25));
+  assert.equal(m.count,5); assert.equal(m.bytes,100); assert.ok(m.records.every(f=>f.dstPort===3333));
+  assert.equal(a.securityDetail('ddos',now).count,0); assert.throws(()=>a.securityDetail('x',now));
+});

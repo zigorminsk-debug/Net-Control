@@ -21,18 +21,30 @@ function contains(ip, networks) {
   const n = ipNumber(ip);
   return n !== null && networks.some(cidr => ((n & cidr.mask) >>> 0) === cidr.network);
 }
-function analyze(flows, networks, rawPolicy, baselines = new Map()) {
+function isMailFlow(f) { return f.protocol === 6 && SMTP_PORTS.has(f.dstPort); }
+function isMinerFlow(f, pools) { return f.protocol === 6 && (MINER_PORTS.has(f.dstPort) || contains(f.dst, pools)); }
+function analyze(flows, networks, rawPolicy, baselines = new Map(), reputation = null) {
   const policy = validatePolicy(rawPolicy);
   const excluded = parseCidrs(policy.excluded), mailServers = parseCidrs(policy.mailServers), pools = parseCidrs(policy.poolAddresses);
-  const outbound = new Map(), inbound = new Map();
+  const outbound = new Map(), inbound = new Map(), reputationHits = new Map();
   for (const f of flows) {
     const dir = direction(f, networks);
+    const localIp = dir === 'outgoing' ? f.src : dir === 'incoming' ? f.dst : '';
+    const remoteIp = dir === 'outgoing' ? f.dst : dir === 'incoming' ? f.src : '';
+    if (localIp && !contains(localIp, excluded) && reputation) {
+      const matches = reputation.match(remoteIp);
+      if (matches.length) {
+        let entry = reputationHits.get(localIp);
+        if (!entry) { entry = { peers: new Set(), sources: new Set(), flows: 0 }; reputationHits.set(localIp, entry); }
+        entry.peers.add(remoteIp); for (const match of matches) entry.sources.add(match); entry.flows++;
+      }
+    }
     if (dir === 'outgoing' && !contains(f.src, excluded)) {
       let h = outbound.get(f.src);
       if (!h) { h = { targets: new Set(), smtp: new Set(), miners: 0, pools: new Set(), intervals: new Map(), bytes: 0, packets: 0 }; outbound.set(f.src, h); }
       h.targets.add(f.dst); h.bytes += f.bytes; h.packets += f.packets;
-      if (f.protocol === 6 && SMTP_PORTS.has(f.dstPort)) h.smtp.add(f.dst);
-      if (f.protocol === 6 && (MINER_PORTS.has(f.dstPort) || contains(f.dst, pools))) {
+      if (isMailFlow(f)) h.smtp.add(f.dst);
+      if (isMinerFlow(f, pools)) {
         h.miners++;
         if (contains(f.dst, pools)) h.pools.add(f.dst);
         if (Number.isFinite(f.startTime) && Number.isFinite(f.endTime) && f.endTime >= f.startTime) {
@@ -60,7 +72,10 @@ function analyze(flows, networks, rawPolicy, baselines = new Map()) {
   for (const [ip, h] of inbound) {
     if (h.sources.size >= policy.ddosSources && h.packets >= policy.ddosPackets) alerts.push({ type:'Возможная входящая атака', severity:h.sources.size >= policy.ddosSources * 2 && h.packets >= policy.ddosPackets * 2 ? 'medium' : 'low', ip, detail:`${h.sources.size} внешних источников и ${h.packets} экспортированных пакетов к внутреннему узлу за окно получения записей.`, recommendation:'Проверьте легитимность нагрузки, firewall и журналы сервиса; при подтверждении обратитесь к провайдеру.' });
   }
+  for (const [ip, hit] of reputationHits) {
+    alerts.push({ type:'Совпадение с репутационной базой', severity:'low', ip, detail:`${hit.flows} записей с ${hit.peers.size} внешними IP; источники: ${[...hit.sources].join(', ')}. Примеры IP: ${[...hit.peers].slice(0, 5).join(', ')}.`, recommendation:'Проверьте адрес и время по журналам. IP может быть общим, устаревшим или ошибочно включённым; совпадение не доказывает компрометацию.' });
+  }
   alerts.sort((a, b) => (a.severity === 'medium' ? 0 : 1) - (b.severity === 'medium' ? 0 : 1));
   return alerts;
 }
-module.exports = { DEFAULTS, validatePolicy, analyze, contains };
+module.exports = { DEFAULTS, validatePolicy, analyze, contains, isMailFlow, isMinerFlow };

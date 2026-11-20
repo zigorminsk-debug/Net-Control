@@ -16,7 +16,12 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
   const calls = []; const dom = new JSDOM(html, {runScripts:'outside-only'}); const win = dom.window;
   win.setInterval = () => 0;
   win.netControl = {
-    history: async () => ({enabled:false,events:[],eventCount:0}),
+    history: async () => ({enabled:false,events:[],eventCount:0,days:[]}),
+    reputation: async () => ({enabled:true,feeds:[]}),
+    securityDetail: async id => a.securityDetail(id),
+    enableReputation: async () => ({ok:true}),
+    clearReputation: async () => ({ok:true}),
+    refreshReputation: async () => ({ok:true,enabled:true,feeds:[]}),
     policy: async () => a.policy,
     category: async id => a.categoryDetail(id),
     savePolicy: async policy => ({ok:true,policy:a.setPolicy(policy)}),
@@ -37,6 +42,12 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
     const doc = win.document;
     assert.match(doc.getElementById('commands').textContent, /dst-address=10\.0\.0\.50/);
     assert.match(doc.getElementById('directions-list').textContent, /Исходящий/);
+    assert.equal(doc.querySelectorAll('#volume-chart .bar').length,30);
+    assert.ok(doc.querySelector('#top-host-chart button.host-link'));
+    doc.querySelector('[data-threat=miner]').click(); await settle();
+    assert.ok(doc.getElementById('threat-detail').classList.contains('active-view'));
+    assert.equal(doc.getElementById('threat-host-count').textContent,'0');
+    doc.getElementById('back-threat').click();
     assert.ok(doc.querySelector('#alerts-list button.host-link'));
     doc.querySelector('#categories-list .category-item').click(); await settle();
     assert.ok(doc.getElementById('category-detail').classList.contains('active-view'));

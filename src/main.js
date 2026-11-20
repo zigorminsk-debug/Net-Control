@@ -10,10 +10,13 @@ const { parseCidrs } = require('./direction');
 const { createUpdateController } = require('./updater');
 const { History } = require('./history');
 const { validatePolicy } = require('./security');
+const { ReputationStore } = require('./reputation');
 const net = require('node:net');
 const collector = new Collector();
 let updates;
 let history;
+let reputation;
+let reputationError = '';
 let historyError = '';
 let leases = new Map();
 let leasesFetchedAt = 0;
@@ -53,12 +56,26 @@ ipcMain.handle('collector:snapshot', (_event, sort) => {
   if (snapshot.running) history.capture(snapshot.alerts);
   return snapshot;
 });
+ipcMain.handle('collector:security-detail', (_event, id) => collector.analyzer.securityDetail(id));
 ipcMain.handle('collector:category', (_event, id) => collector.analyzer.categoryDetail(id));
 ipcMain.handle('collector:host', (_event, ip) => {
   if (typeof ip !== 'string' || !net.isIP(ip)) throw new Error('Некорректный IP-адрес хоста.');
   return { ...collector.analyzer.hostDetail(ip), device: deviceFor(ip) };
 });
 ipcMain.handle('network:local-address', (_event, router) => detectLocalAddress(router));
+ipcMain.handle('reputation:status', () => ({ ...reputation.status(), error:reputationError }));
+ipcMain.handle('reputation:refresh', async () => {
+  try { const result = await reputation.refresh(); reputationError = ''; return {ok:true, ...result}; }
+  catch (err) { reputationError = err.message; return {ok:false, error:err.message}; }
+});
+ipcMain.handle('reputation:enabled', (_event, enabled) => {
+  try { reputation.setEnabled(enabled); reputationError = ''; if (enabled) void reputation.refreshIfDue().catch(err => { reputationError = err.message; }); return {ok:true}; }
+  catch (err) { reputationError = err.message; return {ok:false, error:err.message}; }
+});
+ipcMain.handle('reputation:clear', () => {
+  try { reputation.clear(); reputationError = ''; return {ok:true}; }
+  catch (err) { reputationError = err.message; return {ok:false, error:err.message}; }
+});
 ipcMain.handle('security:policy', () => ({ ...collector.analyzer.policy }));
 ipcMain.handle('security:save-policy', async (_event, raw) => {
   try {
@@ -96,7 +113,7 @@ ipcMain.handle('report:save', async event => {
   try {
     const now = Date.now();
     collector.analyzer.baselines = history.enabled ? history.baselines(now) : new Map();
-    const snapshot = { ...collector.state, ...collector.analyzer.snapshot(now), history: history.summary(now) };
+    const snapshot = { ...collector.state, ...collector.analyzer.snapshot(now), history: history.summary(now), reputation: reputation.status(now) };
     const details = snapshot.hosts.slice(0, 20).map(host => collector.analyzer.hostDetail(host.ip, now));
     await fs.writeFile(result.filePath, buildReport(snapshot, details, now), 'utf8');
     return { ok: true, path: result.filePath };
@@ -123,6 +140,11 @@ app.whenReady().then(async () => {
     const policy = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'security-policy.json'), 'utf8'));
     collector.analyzer.setPolicy(policy);
   } catch (err) { if (err.code !== 'ENOENT') console.error('Cannot load security policy:', err.message); }
+  reputation = new ReputationStore(path.join(app.getPath('userData'), 'reputation-cache.json'));
+  try { reputation.load(); } catch (err) { reputationError = `Не удалось прочитать кэш: ${err.message}`; }
+  collector.analyzer.reputation = reputation;
+  const refreshReputation = async () => { try { await reputation.refreshIfDue(); } catch (err) { reputationError = `Не удалось сохранить базу: ${err.message}`; } };
+  setTimeout(refreshReputation, 15000); setInterval(refreshReputation, 60 * 60 * 1000);
   history = new History(path.join(app.getPath('userData'), 'security-history.json'));
   try { history.load(); } catch (err) { historyError = `Не удалось прочитать историю: ${err.message}`; }
   collector.onFlows = (flows, now) => { try { history.ingest(flows, collector.analyzer.networks, now); } catch (err) { historyError = `Не удалось обработать историю: ${err.message}`; } };
