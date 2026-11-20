@@ -40,7 +40,7 @@
         <div>
           <div class="panel form-panel"><div class="step-heading"><span>01</span><div><h3>MikroTik RouterOS</h3><p>Проверка доступа к REST API RouterOS 7</p></div></div>
             <div class="form-grid"><label>IPv4-адрес роутера<input id="address" placeholder="192.168.88.1" value="192.168.88.1" autocomplete="off"></label><label>Порт REST API<input id="api-port" type="number" min="1" max="65535" value="443"></label><label>Имя пользователя<input id="username" placeholder="Имя пользователя" autocomplete="off"></label><label>Пароль<input id="password" type="password" placeholder="Пароль" autocomplete="off"></label></div>
-            <label class="check"><input id="secure" type="checkbox" checked> Использовать HTTPS (www-ssl)</label><label class="check"><input id="self-signed" type="checkbox"> Доверять самоподписанному сертификату <span>небезопасно</span></label><p class="form-note">HTTP и отключение проверки сертификата раскрывают учётные данные при атаке в сети. Пароль не сохраняется.</p>
+            <label class="check"><input id="secure" type="checkbox" checked> Использовать HTTPS (www-ssl)</label><label class="check"><input id="self-signed" type="checkbox"> Доверять самоподписанному сертификату <span>небезопасно</span></label><p class="form-note" id="protocol-note">HTTPS использует службу www-ssl (обычно порт 443). Доверие самоподписанному сертификату небезопасно. Пароль не сохраняется.</p>
             <button class="button secondary" id="test-router">Проверить подключение</button><div class="message" id="router-message" role="status"></div>
           </div>
           <div class="panel form-panel"><div class="step-heading"><span>02</span><div><h3>Приём потоков</h3><p>UDP-сборщик NetFlow v5, v9 и IPFIX</p></div></div><div class="form-grid"><label>UDP-порт сборщика<input id="flow-port" type="number" min="1" max="65535" value="2055"></label><div class="input-explain">Принимаются только пакеты с указанного выше IPv4-адреса роутера.</div></div><div class="actions"><button class="button primary" id="start">Запустить сбор</button><button class="button secondary" id="stop">Остановить</button><button class="button text-button" id="clear">Очистить данные</button></div><div class="message" id="collector-message" role="status"></div></div>
@@ -51,6 +51,7 @@
     <footer><span>NET CONTROL &nbsp; / &nbsp; ЛОКАЛЬНЫЙ МОНИТОРИНГ</span><span id="footer-status">Ожидание подключения</span></footer>
   </main>
 </div>
+<script src="connection-settings.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

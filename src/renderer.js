@@ -15,10 +15,22 @@ function commands() {
   $('commands').textContent = `/ip traffic-flow set enabled=yes interfaces=all\n/ip traffic-flow target add dst-address=IP_КОМПЬЮТЕРА port=${port} version=9`;
 }
 $('flow-port').addEventListener('input', commands); commands();
+function updateProtocol() {
+  const secure = $('secure').checked;
+  $('api-port').value = window.connectionSettings.portAfterProtocolChange($('api-port').value, secure);
+  $('self-signed').disabled = !secure;
+  $('protocol-note').textContent = secure
+    ? 'HTTPS использует службу www-ssl (обычно порт 443). Доверие самоподписанному сертификату небезопасно. Пароль не сохраняется.'
+    : 'HTTP использует службу www (обычно порт 80) и передаёт пароль без шифрования. Используйте только в доверенной сети. Пароль не сохраняется.';
+}
+$('secure').addEventListener('change', updateProtocol);
+updateProtocol();
 $('test-router').addEventListener('click', async () => {
   const button = $('test-router'); button.disabled = true; message('router-message', 'Проверяем подключение…');
   try {
-    const data = await api.testRouter({ address: $('address').value.trim(), port: $('api-port').value, username: $('username').value, password: $('password').value, secure: $('secure').checked, allowSelfSigned: $('self-signed').checked });
+    const result = await api.testRouter({ address: $('address').value.trim(), port: $('api-port').value, username: $('username').value, password: $('password').value, secure: $('secure').checked, allowSelfSigned: $('secure').checked && $('self-signed').checked });
+    if (!result.ok) throw new Error(result.error);
+    const data = result.data;
     message('router-message', `Подключено: ${data.board} · RouterOS ${data.version} · uptime ${data.uptime}`);
   } catch (err) { message('router-message', `Не удалось подключиться: ${err.message}`, true); }
   finally { button.disabled = false; }
