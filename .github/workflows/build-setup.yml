@@ -45,6 +45,8 @@ jobs:
           python --version
           python -m PyInstaller --version
           python build_setup.py
+          echo "---- build.log (tail) ----"
+          if [ -f build.log ]; then tail -n 60 build.log; else echo "build.log не создан"; fi
 
       - name: Загрузка артефакта setup.exe
         uses: actions/upload-artifact@v4
