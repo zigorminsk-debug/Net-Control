@@ -12,12 +12,16 @@
 создает кросс-платформенные Windows-исполняемые файлы). На сервере
 GitHub Actions сборка выполняется автоматически в workflow
 .github/workflows/build-setup.yml.
+
+Полный лог сборки всегда сохраняется в build.log (записывается даже
+при сбое — для диагностики в Actions).
 """
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
+import traceback
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -25,34 +29,59 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 _LOG: list[str] = []
 
 
-def main() -> int:
-    def _log(msg: str) -> None:
-        print(msg)
-        _LOG.append(msg)
+def _log(msg: str) -> None:
+    print(msg)
+    _LOG.append(msg)
 
-    if sys.platform != "win32":
-        msg = ("[!] Сборка setup.exe возможна только на Windows.\n"
-               "    PyInstaller не создает Windows-исполняемые файлы "
-               "на других платформах.\n"
-               "    Чтобы получить setup.exe:\n"
-               "      1. Запустите этот скрипт на Windows (py build_setup.py)\n"
-               "      2. Или запустите GitHub Actions workflow "
-               ".github/workflows/build-setup.yml — артефакт скачается "
-               "из вкладки Actions.")
-        _log(msg)
+
+def _write_log() -> None:
+    """Сохранить накопленный лог сборки в build.log (в любом случае)."""
+    path = os.path.join(BASE, "build.log")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(_LOG))
+    except OSError:
+        pass
+
+
+def main() -> int:
+    _log(f"[*] build_setup.py запущен: {sys.version}")
+    _log(f"[*] BASE = {BASE}")
+
+    try:
+        return _run()
+    except Exception:
+        _log("[!] Непредусмотренная ошибка сборки:")
+        _log(traceback.format_exc())
         _write_log()
         return 1
 
+
+def _run() -> int:
+    if sys.platform != "win32":
+        _log("[!] Сборка setup.exe возможна только на Windows.\n"
+             "    PyInstaller не создает Windows-исполняемые файлы "
+             "на других платформах.\n"
+             "    Чтобы получить setup.exe:\n"
+             "      1. Запустите этот скрипт на Windows (py build_setup.py)\n"
+             "      2. Или запустите GitHub Actions workflow "
+             ".github/workflows/build-setup.yml — артефакт скачается "
+             "из вкладки Actions.")
+        _write_log()
+        return 1
+
+    # Проверка доступности PyInstaller
     try:
         import PyInstaller  # noqa: F401
+        _log(f"[*] PyInstaller доступен: {PyInstaller.__version__}")
     except ImportError:
         _log("[!] PyInstaller не установлен. Выполняю: pip install pyinstaller")
         subprocess.check_call([sys.executable, "-m", "pip", "install",
                                "pyinstaller"])
+        import PyInstaller  # noqa: F401
+        _log(f"[*] PyInstaller установлен: {PyInstaller.__version__}")
 
-    web_src = os.path.join(BASE, "app", "web")
-    web_dst = os.path.join("app", "web")
-
+    # Максимально стандартная команда PyInstaller
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",            # один файл setup.exe
@@ -60,17 +89,13 @@ def main() -> int:
         "--name", "Net-Control",
         "--clean",
         "--noconfirm",
-        "--distpath", os.path.join(BASE, "dist"),
-        "--workpath", os.path.join(BASE, "build"),
-        "--specpath", os.path.join(BASE, "build"),
-        "--exclude-module", "tkinter",
-        "--add-data", f"{web_src}{os.pathsep}{web_dst}",
+        "--add-data",
+        f"{os.path.join(BASE, 'app', 'web')}{os.pathsep}app/web",
         os.path.join(BASE, "main.py"),
     ]
     _log("[*] Команда сборки: " + " ".join(cmd))
 
-    # Получаем полный вывод PyInstaller и сохраняем в build.log,
-    # чтобы лог ошибки доступен даже при сбое шага (через артефакт).
+    # Полный вывод PyInstaller попадает в build.log (и в консоль шага)
     try:
         proc = subprocess.run(cmd, cwd=BASE, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, text=True)
@@ -78,7 +103,6 @@ def main() -> int:
         rc = proc.returncode
     except Exception as e:  # сбой запуска самого PyInstaller
         _log(f"[!] Не удалось запустить PyInstaller: {e!r}")
-        import traceback
         _log(traceback.format_exc())
         rc = 1
 
@@ -96,16 +120,6 @@ def main() -> int:
         return 0
     _log("[!] Ошибка: исполняемый файл не создан.")
     return 1
-
-
-def _write_log() -> None:
-    """Сохранить накопленный лог сборки в build.log (в любом случае)."""
-    path = os.path.join(BASE, "build.log")
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(_LOG))
-    except OSError:
-        pass
 
 
 if __name__ == "__main__":
