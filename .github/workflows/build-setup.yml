@@ -41,7 +41,10 @@ jobs:
           python -m pip install pyinstaller
 
       - name: Сборка Net-Control.exe
-        run: python build_setup.py
+        run: |
+          python --version
+          python -m PyInstaller --version
+          python build_setup.py
 
       - name: Загрузка артефакта setup.exe
         uses: actions/upload-artifact@v4
@@ -49,6 +52,15 @@ jobs:
           name: Net-Control-setup-exe
           path: dist/Net-Control.exe
           if-no-files-found: error
+
+      - name: Загрузка логов сборки (для диагностики сбоев)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-logs
+          path: |
+            build.log
+            dist/
 
   release:
     name: Релиз при разметке tag

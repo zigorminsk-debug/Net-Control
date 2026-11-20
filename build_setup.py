@@ -51,13 +51,28 @@ def main() -> int:
         "--name", "Net-Control",
         "--clean",
         "--noconfirm",
+        "--distpath", os.path.join(BASE, "dist"),
+        "--workpath", os.path.join(BASE, "build"),
+        "--specpath", os.path.join(BASE, "build"),
         "--exclude-module", "tkinter",
-        "--exclude-module", "matplotlib",
         "--add-data", f"{web_src}{os.pathsep}{web_dst}",
         os.path.join(BASE, "main.py"),
     ]
     print("[*] Команда сборки:", " ".join(cmd))
-    subprocess.check_call(cmd, cwd=BASE)
+
+    # Получаем полный вывод PyInstaller и сохраняем в build.log,
+    # чтобы лог ошибки доступен даже при сбое шага (через артефакт).
+    proc = subprocess.run(cmd, cwd=BASE, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True)
+    log_path = os.path.join(BASE, "build.log")
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(proc.stdout or "")
+    print(proc.stdout or "")
+
+    if proc.returncode != 0:
+        print(f"[!] PyInstaller завершился с кодом {proc.returncode}. "
+              f"Полный лог: build.log")
+        return 1
 
     exe = os.path.join(BASE, "dist", "Net-Control.exe")
     if os.path.exists(exe):
