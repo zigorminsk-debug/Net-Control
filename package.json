@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
-    "dist:win": "electron-builder --win nsis"
+    "dist:win": "electron-builder --win nsis --publish never"
   },
   "devDependencies": {
     "electron": "^35.7.5",
@@ -17,9 +17,10 @@
   "build": {
     "appId": "com.netcontrol.desktop",
     "productName": "Net Control",
+    "compression": "store",
     "directories": { "output": "dist" },
     "files": ["src/**/*", "package.json"],
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "artifactName": "setup.exe" },
+    "win": { "signAndEditExecutable": false, "target": [{ "target": "nsis", "arch": ["x64"] }], "artifactName": "setup.exe" },
     "nsis": { "warningsAsErrors": false, "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
   }
 }
