@@ -16,6 +16,7 @@ test('connection errors explain the relevant service and defaults', () => {
   assert.match(describeConnectionError({code:'ECONNREFUSED'}, {secure:false, port:443}), /www.*80.*443/);
   assert.match(describeConnectionError({code:'ECONNREFUSED'}, {secure:true, port:443}), /www-ssl.*443/);
   assert.match(describeConnectionError({code:'DEPTH_ZERO_SELF_SIGNED_CERT'}, {secure:true,port:443}), /сертификат/);
+  assert.match(describeConnectionError({code:'EPROTO'}, {secure:true,port:443}), /certificate=none/);
 });
 test('RouterOS check sends Basic auth and reads response', async () => {
   let auth, path;

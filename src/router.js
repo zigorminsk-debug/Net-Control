@@ -10,7 +10,7 @@ function describeConnectionError(err, { secure, port }) {
   if (err.code === 'ROUTER_TIMEOUT' || err.code === 'ETIMEDOUT') return `Время ожидания истекло. Проверьте маршрутизацию, IP, порт ${port}, службу ${service} и правила firewall.`;
   if (['ENETUNREACH', 'EHOSTUNREACH'].includes(err.code)) return 'Роутер недоступен по сети. Проверьте IP-адрес и маршрут до него.';
   if (['DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(err.code)) return 'Ошибка проверки сертификата HTTPS. Проверьте сертификат и его соответствие адресу роутера. Доверие самоподписанному сертификату отключает проверку и небезопасно.';
-  if (err.code && (err.code.startsWith('ERR_SSL_') || err.code.startsWith('ERR_TLS_') || err.code === 'EPROTO')) return `Ошибка TLS. Проверьте, что выбран HTTPS и на порту ${port} работает служба www-ssl.`;
+  if (err.code && (err.code.startsWith('ERR_SSL_') || err.code.startsWith('ERR_TLS_') || err.code === 'EPROTO')) return `Ошибка TLS. Проверьте HTTPS, порт ${port} и службу www-ssl с назначенным сертификатом. Если certificate=none, назначьте сертификат на роутере; флажок доверия не создаёт его.`;
   return `Ошибка подключения: ${err.message}`;
 }
 function testRouter({ address, port, username, password, secure, allowSelfSigned }) {

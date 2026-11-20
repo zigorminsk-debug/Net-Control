@@ -78,7 +78,7 @@ $('test-router').addEventListener('click', async () => {
     if (!result.ok) throw new Error(result.error);
     const data = result.data;
     message('router-message', `Подключено: ${data.board} · RouterOS ${data.version} · uptime ${data.uptime}`);
-  } catch (err) { message('router-message', `Не удалось подключиться: ${err.message}`, true); }
+  } catch (err) { message('router-message', `Не удалось проверить REST API: ${err.message} Сбор Traffic Flow работает независимо.`, true); }
   finally { button.disabled = false; }
 });
 function renderUpdate(state) {

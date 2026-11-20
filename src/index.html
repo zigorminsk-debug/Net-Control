@@ -49,7 +49,7 @@
       <div class="heading"><div><div class="eyebrow"><span></span> НАСТРОЙКА</div><h1>Подключение</h1><p>Подключите роутер и настройте экспорт сетевых потоков.</p></div></div>
       <div class="settings-grid">
         <div>
-          <div class="panel form-panel"><div class="step-heading"><span>01</span><div><h3>MikroTik RouterOS</h3><p>Проверка доступа к REST API RouterOS 7</p></div></div>
+          <div class="panel form-panel"><div class="step-heading"><span>01</span><div><h3>Проверка REST API MikroTik</h3><p>Необязательно · не влияет на приём Traffic Flow</p></div></div>
             <div class="form-grid"><label>IPv4-адрес роутера<input id="address" placeholder="192.168.88.1" value="192.168.88.1" autocomplete="off"></label><label>Порт REST API<input id="api-port" type="number" min="1" max="65535" value="443"></label><label>Имя пользователя<input id="username" placeholder="Имя пользователя" autocomplete="off"></label><label>Пароль<input id="password" type="password" placeholder="Пароль" autocomplete="off"></label></div>
             <label class="check"><input id="secure" type="checkbox" checked> Использовать HTTPS (www-ssl)</label><label class="check"><input id="self-signed" type="checkbox"> Доверять самоподписанному сертификату <span>небезопасно</span></label><p class="form-note" id="protocol-note">HTTPS использует службу www-ssl (обычно порт 443). Доверие самоподписанному сертификату небезопасно. Пароль не сохраняется.</p>
             <button class="button secondary" id="test-router">Проверить подключение</button><div class="message" id="router-message" role="status"></div>
