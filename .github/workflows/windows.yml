@@ -18,17 +18,22 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Build installer
+        id: build
+        shell: cmd
+        continue-on-error: true
+        run: npm run dist:win > build-output.txt 2>&1
+      - name: Report build failure
+        if: steps.build.outcome == 'failure'
         shell: pwsh
         run: |
-          cmd /c "npm run dist:win > build-output.txt 2>&1"
-          $code = $LASTEXITCODE
-          Get-Content build-output.txt
-          if ($code -ne 0) {
-            $lines = Get-Content build-output.txt | Where-Object { $_.Trim().Length -gt 0 }
-            $tail = (($lines | Select-String -Pattern 'error|failed|cannot|exit|exception' -Context 2,4 | Out-String).Trim()).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::error::$tail"
-            exit $code
+          $lines = Get-Content build-output.txt | Where-Object { $_.Trim().Length -gt 0 }
+          foreach ($line in $lines) {
+            $line = $line.Trim()
+            if ($line.Length -gt 1500) { $line = $line.Substring(0, 1500) }
+            $line = $line.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$line"
           }
+          exit 1
       - uses: actions/upload-artifact@v4
         with:
           name: Net-Control-Windows
