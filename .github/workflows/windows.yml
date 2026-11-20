@@ -24,7 +24,8 @@ jobs:
           $code = $LASTEXITCODE
           Get-Content build-output.txt
           if ($code -ne 0) {
-            $tail = ((Get-Content build-output.txt | Select-Object -Last 30) -join ' | ').Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            $lines = Get-Content build-output.txt | Where-Object { $_.Trim().Length -gt 0 }
+            $tail = (($lines | Select-String -Pattern 'error|failed|cannot|exit|exception' -Context 2,4 | Out-String).Trim()).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error::$tail"
             exit $code
           }
