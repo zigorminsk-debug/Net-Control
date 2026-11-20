@@ -20,6 +20,6 @@
     "directories": { "output": "dist" },
     "files": ["src/**/*", "package.json"],
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "artifactName": "setup.exe" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
+    "nsis": { "warningsAsErrors": false, "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
   }
 }
