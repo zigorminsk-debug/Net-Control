@@ -30,3 +30,23 @@ for (const version of [9,10]) test(`decodes version ${version} templates and rec
 });
 test('ignores malformed packets without throwing', () => { const p = new FlowParser(); for(let n=0;n<100;n++) assert.doesNotThrow(() => p.parse(Buffer.alloc(n, 255))); });
 test('withdraws IPFIX templates', () => { const p = new FlowParser(); p.parse(wrap(10,set(2,template())),'r'); const withdrawal = Buffer.from([1,0,0,0]); p.parse(wrap(10,set(2,withdrawal)),'r'); assert.deepEqual(p.parse(wrap(10,set(256,record())),'r'),[]); });
+test('NetFlow v5 preserves TCP flags, interfaces, sampling and flow timestamps', () => {
+  const b = v5(); const nowSeconds = 1700000000; b.writeUInt32BE(100000,4); b.writeUInt32BE(nowSeconds,8); b.writeUInt16BE(0x400a,22);
+  b.writeUInt16BE(5,36); b.writeUInt16BE(6,38); b.writeUInt32BE(50000,48); b.writeUInt32BE(90000,52); b[61] = 0x12;
+  const f = new FlowParser().parse(b)[0]; assert.equal(f.inputInterface,5); assert.equal(f.outputInterface,6); assert.equal(f.tcpFlags,0x12); assert.equal(f.samplingInterval,10);
+  assert.equal(f.startTime, nowSeconds*1000-50000); assert.equal(f.endTime, nowSeconds*1000-10000);
+});
+test('IPFIX reads optional timestamps, flags and interfaces if supplied', () => {
+  const fields = [[8,4],[12,4],[6,1],[10,4],[14,4],[152,8],[153,8]];
+  const t = Buffer.alloc(4+fields.length*4); t.writeUInt16BE(256,0); t.writeUInt16BE(fields.length,2);
+  fields.forEach(([type,len],i)=>{t.writeUInt16BE(type,4+i*4);t.writeUInt16BE(len,6+i*4);});
+  const data=Buffer.alloc(33); Buffer.from([10,0,0,1,8,8,8,8]).copy(data); data[8]=0x12; data.writeUInt32BE(5,9); data.writeUInt32BE(7,13); data.writeBigUInt64BE(1700000000000n,17); data.writeBigUInt64BE(1700000060000n,25);
+  const p=new FlowParser(); p.parse(wrap(10,set(2,t)),'r'); const [f]=p.parse(wrap(10,set(256,data)),'r');
+  assert.equal(f.startTime,1700000000000); assert.equal(f.endTime,1700000060000); assert.equal(f.tcpFlags,0x12); assert.equal(f.inputInterface,5); assert.equal(f.outputInterface,7);
+});
+test('NetFlow v9 reconstructs uptime-based timestamps from its export header', () => {
+  const fields=[[8,4],[12,4],[22,4],[21,4]]; const t=Buffer.alloc(4+fields.length*4); t.writeUInt16BE(256,0);t.writeUInt16BE(fields.length,2); fields.forEach(([id,len],i)=>{t.writeUInt16BE(id,4+i*4);t.writeUInt16BE(len,6+i*4);});
+  const b=Buffer.alloc(16);Buffer.from([10,0,0,1,8,8,8,8]).copy(b);b.writeUInt32BE(50000,8);b.writeUInt32BE(90000,12);
+  const p=new FlowParser();p.parse(wrap(9,set(0,t)),'r');const msg=wrap(9,set(256,b));msg.writeUInt32BE(100000,4);msg.writeUInt32BE(1700000000,8);
+  const [f]=p.parse(msg,'r');assert.equal(f.startTime,1699999950000);assert.equal(f.endTime,1699999990000);
+});

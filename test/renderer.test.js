@@ -16,6 +16,12 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
   const calls = []; const dom = new JSDOM(html, {runScripts:'outside-only'}); const win = dom.window;
   win.setInterval = () => 0;
   win.netControl = {
+    history: async () => ({enabled:false,events:[],eventCount:0}),
+    policy: async () => a.policy,
+    category: async id => a.categoryDetail(id),
+    savePolicy: async policy => ({ok:true,policy:a.setPolicy(policy)}),
+    enableHistory: async () => ({ok:true}),
+    clearHistory: async () => ({ok:true}),
     updateStatus: async () => ({status:'up-to-date',currentVersion:'1.1.0'}),
     checkUpdates: async () => ({status:'downloaded',currentVersion:'1.1.0',availableVersion:'1.2.0'}),
     installUpdate: async () => ({ok:true}),
@@ -32,6 +38,10 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
     assert.match(doc.getElementById('commands').textContent, /dst-address=10\.0\.0\.50/);
     assert.match(doc.getElementById('directions-list').textContent, /Исходящий/);
     assert.ok(doc.querySelector('#alerts-list button.host-link'));
+    doc.querySelector('#categories-list .category-item').click(); await settle();
+    assert.ok(doc.getElementById('category-detail').classList.contains('active-view'));
+    assert.ok(doc.querySelector('#category-hosts button.host-link'));
+    doc.getElementById('back-category').click();
     doc.querySelector('[data-sort="flows"]').click(); await settle();
     assert.equal(calls.at(-1).by,'flows'); assert.equal(calls.at(-1).direction,'desc');
     doc.querySelector('[data-sort="flows"]').click(); await settle();

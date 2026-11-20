@@ -3,14 +3,25 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { Collector } = require('./collector');
-const { testRouter } = require('./router');
+const { testRouter, readLeases } = require('./router');
 const { detectLocalAddress } = require('./local-address');
 const { buildReport } = require('./report');
 const { parseCidrs } = require('./direction');
 const { createUpdateController } = require('./updater');
+const { History } = require('./history');
+const { validatePolicy } = require('./security');
 const net = require('node:net');
 const collector = new Collector();
 let updates;
+let history;
+let historyError = '';
+let leases = new Map();
+let leasesFetchedAt = 0;
+let leasesRouter = '';
+function deviceFor(ip, now = Date.now()) {
+  if (!leasesFetchedAt || leasesRouter !== collector.state.address || now - leasesFetchedAt > 5 * 60000) return null;
+  const entry = leases.get(ip); return entry ? { ...entry, observedAt: leasesFetchedAt } : null;
+}
 function createWindow() {
   const window = new BrowserWindow({ width: 1440, height: 920, minWidth: 1000, minHeight: 700, backgroundColor: '#0b1015', title: 'Net Control', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   window.loadFile(path.join(__dirname, 'index.html'));
@@ -35,12 +46,37 @@ ipcMain.handle('updates:install', async event => {
 });
 ipcMain.handle('collector:start', (_event, options) => collector.start(options.address, Number(options.port)));
 ipcMain.handle('collector:stop', () => { collector.stop(); return collector.snapshot(); });
-ipcMain.handle('collector:snapshot', (_event, sort) => collector.snapshot(sort));
+ipcMain.handle('collector:snapshot', (_event, sort) => {
+  collector.analyzer.baselines = history.enabled ? history.baselines() : new Map();
+  const snapshot = collector.snapshot(sort);
+  for (const alert of snapshot.alerts) alert.device = deviceFor(alert.ip);
+  if (snapshot.running) history.capture(snapshot.alerts);
+  return snapshot;
+});
+ipcMain.handle('collector:category', (_event, id) => collector.analyzer.categoryDetail(id));
 ipcMain.handle('collector:host', (_event, ip) => {
   if (typeof ip !== 'string' || !net.isIP(ip)) throw new Error('Некорректный IP-адрес хоста.');
-  return collector.analyzer.hostDetail(ip);
+  return { ...collector.analyzer.hostDetail(ip), device: deviceFor(ip) };
 });
 ipcMain.handle('network:local-address', (_event, router) => detectLocalAddress(router));
+ipcMain.handle('security:policy', () => ({ ...collector.analyzer.policy }));
+ipcMain.handle('security:save-policy', async (_event, raw) => {
+  try {
+    const policy = validatePolicy(raw);
+    await fs.writeFile(path.join(app.getPath('userData'), 'security-policy.json'), JSON.stringify(policy), 'utf8');
+    collector.analyzer.setPolicy(policy);
+    return { ok:true, policy };
+  } catch (err) { return { ok:false, error:err.message }; }
+});
+ipcMain.handle('history:summary', () => ({ ...history.summary(), error:historyError }));
+ipcMain.handle('history:enabled', (_event, enabled) => {
+  try { if (typeof enabled !== 'boolean') throw new Error('Некорректный параметр.'); history.setEnabled(enabled); history.flush(); historyError = ''; return {ok:true}; }
+  catch (err) { historyError = err.message; return {ok:false, error:err.message}; }
+});
+ipcMain.handle('history:clear', () => {
+  try { history.clear(); history.flush(); historyError = ''; return {ok:true}; }
+  catch (err) { historyError = err.message; return {ok:false, error:err.message}; }
+});
 ipcMain.handle('network:subnets', () => collector.analyzer.networks.map(n => n.cidr));
 ipcMain.handle('network:save-subnets', async (_event, text) => {
   try {
@@ -59,11 +95,20 @@ ipcMain.handle('report:save', async event => {
   if (result.canceled || !result.filePath) return { ok: false, canceled: true };
   try {
     const now = Date.now();
-    const snapshot = { ...collector.state, ...collector.analyzer.snapshot(now) };
+    collector.analyzer.baselines = history.enabled ? history.baselines(now) : new Map();
+    const snapshot = { ...collector.state, ...collector.analyzer.snapshot(now), history: history.summary(now) };
     const details = snapshot.hosts.slice(0, 20).map(host => collector.analyzer.hostDetail(host.ip, now));
     await fs.writeFile(result.filePath, buildReport(snapshot, details, now), 'utf8');
     return { ok: true, path: result.filePath };
   } catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('router:leases', async (_event, options) => {
+  leases = new Map(); leasesFetchedAt = 0; leasesRouter = '';
+  try {
+    const items = await readLeases({ ...options, port: Number(options.port) });
+    leases = new Map(items.map(item => [item.ip, item])); leasesFetchedAt = Date.now(); leasesRouter = options.address;
+    return { ok:true, count:items.length, observedAt:leasesFetchedAt };
+  } catch (err) { return { ok:false, error:err.message }; }
 });
 ipcMain.handle('router:test', async (_event, options) => {
   try { return { ok: true, data: await testRouter({ ...options, port: Number(options.port) }) }; }
@@ -74,6 +119,14 @@ app.whenReady().then(async () => {
     const config = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'networks.json'), 'utf8'));
     if (Array.isArray(config.subnets) && config.subnets.every(s => typeof s === 'string')) collector.analyzer.setNetworks(config.subnets.join('\n'));
   } catch (err) { if (err.code !== 'ENOENT') console.error('Cannot load local subnets:', err.message); }
+  try {
+    const policy = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'security-policy.json'), 'utf8'));
+    collector.analyzer.setPolicy(policy);
+  } catch (err) { if (err.code !== 'ENOENT') console.error('Cannot load security policy:', err.message); }
+  history = new History(path.join(app.getPath('userData'), 'security-history.json'));
+  try { history.load(); } catch (err) { historyError = `Не удалось прочитать историю: ${err.message}`; }
+  collector.onFlows = (flows, now) => { try { history.ingest(flows, collector.analyzer.networks, now); } catch (err) { historyError = `Не удалось обработать историю: ${err.message}`; } };
+  setInterval(() => { try { history.prune(); if (history.dirty) { history.flush(); historyError = ''; } } catch (err) { historyError = `Не удалось сохранить историю: ${err.message}`; } }, 30000);
   const { autoUpdater } = require('electron-updater');
   updates = createUpdateController({ updater: autoUpdater, packaged: app.isPackaged, platform: process.platform, version: app.getVersion() });
   createWindow();
@@ -82,5 +135,6 @@ app.whenReady().then(async () => {
     setInterval(() => updates.check(), 6 * 60 * 60 * 1000);
   }
 });
+app.on('before-quit', () => { if (history) { try { history.flush(); } catch (err) { console.error('Cannot save history:', err.message); } } });
 app.on('window-all-closed', () => { collector.stop(); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

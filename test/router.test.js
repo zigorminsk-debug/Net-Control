@@ -33,3 +33,16 @@ test('HTTP error codes produce useful messages', async () => {
   try { await assert.rejects(testRouter({address:'127.0.0.1',port:server.address().port,username:'u',password:'p',secure:false}), /401.*пароль/); }
   finally { await new Promise(resolve => server.close(resolve)); }
 });
+test('reads only active DHCP leases, discards ambiguous IPs and uses the read-only REST path', async () => {
+  const { readLeases } = require('../src/router'); let requestPath = '';
+  const server = http.createServer((req,res) => { requestPath = req.url; res.end(JSON.stringify([
+    {status:'bound','active-address':'10.0.0.5','host-name':'desktop','active-mac-address':'AA:BB:CC:DD:EE:FF'},
+    {status:'waiting',address:'10.0.0.6'},
+    {status:'bound',address:'10.0.0.7'}, {status:'bound',address:'10.0.0.7'}
+  ])); });
+  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
+  try {
+    const leases = await readLeases({address:'127.0.0.1',port:server.address().port,username:'u',password:'p',secure:false});
+    assert.equal(requestPath,'/rest/ip/dhcp-server/lease'); assert.deepEqual(leases,[{ip:'10.0.0.5',name:'desktop',mac:'AA:BB:CC:DD:EE:FF'}]);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});

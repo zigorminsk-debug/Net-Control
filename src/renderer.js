@@ -2,20 +2,24 @@
 const $ = id => document.getElementById(id);
 const api = window.netControl;
 let selectedHost = '';
+let selectedCategory = '';
+let historyLoaded = false;
 let manualLocal = false;
 let detectRevision = 0;
 let hostSort = { by: 'bytes', direction: 'desc' };
 let refreshRevision = 0;
 function switchView(view) {
   if (view !== 'host-detail') selectedHost = '';
+  if (view !== 'category-detail') selectedCategory = '';
   document.querySelectorAll('.view').forEach(el => el.classList.toggle('active-view', el.id === view));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === view));
-  $('breadcrumb').textContent = view === 'dashboard' ? 'Обзор сети' : view === 'host-detail' ? 'Анализ хоста' : view === 'about' ? 'О программе' : 'Подключение';
+  $('breadcrumb').textContent = view === 'dashboard' ? 'Обзор сети' : view === 'host-detail' ? 'Анализ хоста' : view === 'category-detail' ? 'Тип трафика' : view === 'about' ? 'О программе' : 'Подключение';
 }
 document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
 $('open-settings').addEventListener('click', () => switchView('settings'));
 $('banner-action').addEventListener('click', () => switchView('settings'));
 $('direction-settings').addEventListener('click', () => { switchView('settings'); $('subnets').focus(); });
+$('history-settings').addEventListener('click', () => { switchView('settings'); document.querySelector('.policy-panel').open = true; $('history-enabled').focus(); });
 $('update-top').addEventListener('click', () => switchView('about'));
 function message(id, text, error = false) { const el = $(id); el.textContent = text; el.classList.toggle('error', error); }
 function usableIPv4(value) {
@@ -81,6 +85,15 @@ $('test-router').addEventListener('click', async () => {
   } catch (err) { message('router-message', `Не удалось проверить REST API: ${err.message} Сбор Traffic Flow работает независимо.`, true); }
   finally { button.disabled = false; }
 });
+$('read-leases').addEventListener('click', async () => {
+  const button = $('read-leases'); button.disabled = true; message('router-message', 'Получаем текущие DHCP-аренды…');
+  try {
+    const result = await api.readLeases({ address: $('address').value.trim(), port: $('api-port').value, username: $('username').value, password: $('password').value, secure: $('secure').checked, allowSelfSigned: $('secure').checked && $('self-signed').checked });
+    if (!result.ok) throw new Error(result.error);
+    message('router-message', `Получено ${result.count} действующих аренд. Сведения действуют в приложении до 5 минут и не подтверждают владельца IP в прошлом.`);
+  } catch (err) { message('router-message', `Не удалось получить DHCP-аренды: ${err.message}. Приём Traffic Flow работает независимо.`, true); }
+  finally { button.disabled = false; }
+});
 function renderUpdate(state) {
   $('about-version').textContent = `Версия ${state.currentVersion}`;
   $('app-version').textContent = `NET CONTROL · V${state.currentVersion}`;
@@ -117,6 +130,32 @@ $('install-update').addEventListener('click', async () => {
   finally { $('install-update').disabled = false; }
 });
 refreshUpdate(); setInterval(refreshUpdate, 2000);
+const policyKeys = ['scanDestinations','smtpDestinations','minerRecords','minerMinutes','ddosPackets','ddosBytesMB','ddosSources','excluded','mailServers','poolAddresses'];
+api.policy().then(policy => { for (const key of policyKeys) $(`policy-${key}`).value = policy[key]; }).catch(err => message('policy-message', err.message, true));
+$('save-policy').addEventListener('click', async () => {
+  const policy = Object.fromEntries(policyKeys.map(key => [key, $(`policy-${key}`).value]));
+  try { const result = await api.savePolicy(policy); if (!result.ok) throw new Error(result.error); message('policy-message', 'Правила сохранены. Текущее окно пересчитано.'); await refresh(); }
+  catch (err) { message('policy-message', `Ошибка: ${err.message}`, true); }
+});
+$('save-history').addEventListener('click', async () => {
+  try { const result = await api.enableHistory($('history-enabled').checked); if (!result.ok) throw new Error(result.error); message('history-message', 'Настройка сохранена. При выключении уже сохранённые данные не удаляются.'); await refreshHistory(); }
+  catch (err) { message('history-message', `Ошибка: ${err.message}`, true); }
+});
+$('clear-history').addEventListener('click', async () => {
+  if (!window.confirm('Безвозвратно удалить локальные события и агрегаты истории?')) return;
+  try { const result = await api.clearHistory(); if (!result.ok) throw new Error(result.error); message('history-message', 'История очищена.'); await refreshHistory(); }
+  catch (err) { message('history-message', `Ошибка: ${err.message}`, true); }
+});
+async function refreshHistory() {
+  try {
+    const data = await api.history();
+    if (!historyLoaded) { $('history-enabled').checked = data.enabled; historyLoaded = true; }
+    $('history-note').textContent = data.error ? `Ошибка истории: ${data.error}` : `${data.enabled ? 'Запись включена' : 'Запись выключена'} · ${data.eventCount} событий · показаны последние ${data.events.length}. Карточка IP показывает только текущее окно.`;
+    const tbody = $('history-list'); tbody.replaceChildren();
+    if (!data.events.length) { const row = document.createElement('tr'); const cell = textCell(row, 'Нет сохранённых событий'); cell.colSpan = 4; cell.className = 'empty'; tbody.appendChild(row); }
+    for (const e of data.events) { const row = document.createElement('tr'); textCell(row, new Date(e.time).toLocaleString('ru-RU')); textCell(row, e.type); const ip = document.createElement('td'); ip.appendChild(hostButton(e.ip)); row.appendChild(ip); const detail = textCell(row, e.detail + (e.device ? ` · DHCP: ${e.device.name || 'без имени'} ${e.device.mac || ''} (снимок ${new Date(e.device.observedAt).toLocaleString('ru-RU')})` : '')); detail.className = 'history-detail'; tbody.appendChild(row); }
+  } catch (err) { $('history-note').textContent = `Ошибка истории: ${err.message}`; }
+}
 api.subnets().then(networks => { $('subnets').value = networks.join('\n'); }).catch(err => message('subnets-message', `Не удалось загрузить подсети: ${err.message}`, true));
 $('save-subnets').addEventListener('click', async () => {
   $('save-subnets').disabled = true;
@@ -174,7 +213,7 @@ function renderCategories(id, categories) {
   if (!categories.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'Пока нет данных о потоках'; root.appendChild(empty); return; }
   const total = categories.reduce((sum, item) => sum + item.bytes, 0);
   for (const item of categories) {
-    const box = document.createElement('div'); box.className = 'category-item';
+    const box = document.createElement('button'); box.type = 'button'; box.className = 'category-item'; box.setAttribute('aria-label', `Открыть тип трафика: ${item.label}`); box.addEventListener('click', () => openCategory(item.id));
     const line = document.createElement('div'); line.className = 'category-line';
     const name = document.createElement('span'); name.textContent = item.label;
     const bytes = document.createElement('strong'); bytes.textContent = formatBytes(item.bytes); line.append(name, bytes);
@@ -183,8 +222,30 @@ function renderCategories(id, categories) {
     box.append(line, sub, track); root.appendChild(box);
   }
 }
+async function openCategory(id) {
+  selectedCategory = id; switchView('category-detail');
+  try { const data = await api.category(id); if (selectedCategory === id) renderCategory(data); }
+  catch (err) { $('category-record-note').textContent = `Ошибка: ${err.message}`; }
+}
+$('back-category').addEventListener('click', () => switchView('dashboard'));
+function renderCategory(s) {
+  $('category-title').textContent = s.label; $('category-bytes').textContent = formatBytes(s.bytes); $('category-flows').textContent = s.count.toLocaleString('ru-RU'); $('category-host-count').textContent = s.hostCount.toLocaleString('ru-RU');
+  $('category-record-note').textContent = `Показано ${s.records.length} из ${s.count} записей за последние 5 минут`;
+  const hosts = $('category-hosts'); hosts.replaceChildren();
+  if (!s.hosts.length) { const row = document.createElement('tr'); const cell = textCell(row, 'Нет данных за последние 5 минут'); cell.colSpan = 4; cell.className = 'empty'; hosts.appendChild(row); }
+  for (const host of s.hosts) { const row = document.createElement('tr'); const cell = document.createElement('td'); cell.appendChild(hostButton(host.ip)); row.appendChild(cell); textCell(row, host.targets); textCell(row, host.flows); textCell(row, formatBytes(host.bytes)); hosts.appendChild(row); }
+  const records = $('category-records'); records.replaceChildren();
+  if (!s.records.length) { const row = document.createElement('tr'); const cell = textCell(row, 'Нет записей'); cell.colSpan = 5; cell.className = 'empty'; records.appendChild(row); }
+  for (const f of s.records) {
+    const row = document.createElement('tr'); textCell(row, new Date(f.time).toLocaleTimeString('ru-RU'));
+    for (const [ip,port] of [[f.src,f.srcPort],[f.dst,f.dstPort]]) { const cell = document.createElement('td'); cell.append(hostButton(ip), document.createTextNode(`:${port}`)); row.appendChild(cell); }
+    textCell(row, f.evidence); textCell(row, formatBytes(f.bytes)); records.appendChild(row);
+  }
+}
 function renderHost(s) {
-  $('host-title').textContent = s.ip; $('host-bytes').textContent = formatBytes(s.bytes);
+  $('host-title').textContent = s.ip;
+  $('host-device').textContent = s.device ? `Текущая DHCP-аренда: ${s.device.name || 'имя не указано'} · ${s.device.mac || 'MAC не указан'} · получена ${new Date(s.device.observedAt).toLocaleString('ru-RU')}; не доказывает владельца IP в прошлом.` : 'Данные DHCP не загружены или старше 5 минут.';
+  $('host-bytes').textContent = formatBytes(s.bytes);
   $('host-flows').textContent = s.count.toLocaleString('ru-RU'); $('host-peers').textContent = s.peers.toLocaleString('ru-RU'); $('host-packets').textContent = s.packets.toLocaleString('ru-RU');
   $('host-directions').textContent = `${s.outgoing} исходящих · ${s.incoming} входящих`;
   $('host-out-bytes').textContent = formatBytes(s.outgoingBytes); $('host-in-bytes').textContent = formatBytes(s.incomingBytes);
@@ -200,6 +261,7 @@ function renderHost(s) {
     const dst = textCell(row, `${f.dst}:${f.dstPort}`); dst.className = 'host-records-address';
     textCell(row, f.protocol === 6 ? 'TCP' : f.protocol === 17 ? 'UDP' : `IP ${f.protocol}`);
     const type = textCell(row, f.category); const evidence = document.createElement('span'); evidence.className = 'host-record-type'; evidence.textContent = f.evidence; type.appendChild(evidence);
+    const metadata = []; if (f.startTime) metadata.push(`начало ${new Date(f.startTime).toLocaleString('ru-RU')}`); if (f.endTime) metadata.push(`конец ${new Date(f.endTime).toLocaleString('ru-RU')}`); if (f.tcpFlags != null) metadata.push(`TCP-флаги 0x${f.tcpFlags.toString(16)}`); if (f.inputInterface != null) metadata.push(`входной ifIndex ${f.inputInterface}`); if (f.outputInterface != null) metadata.push(`выходной ifIndex ${f.outputInterface}`); if (f.samplingInterval) metadata.push(`sampling 1:${f.samplingInterval}`); if (metadata.length) { const extra = document.createElement('span'); extra.className = 'host-record-type'; extra.textContent = metadata.join(' · '); type.appendChild(extra); }
     textCell(row, formatBytes(f.bytes)); tbody.appendChild(row);
   }
 }
@@ -215,8 +277,8 @@ function render(s) {
   $('updated').textContent = s.lastPacket ? `●  Обновлено ${new Date().toLocaleTimeString('ru-RU')}` : '●  Ожидание данных';
   $('footer-status').textContent = s.error ? `Ошибка: ${s.error}` : `${s.datagrams} UDP-пакетов · ${s.received} записей${s.dropped ? ` · ${s.dropped} отброшено из-за лимита` : ''}`;
   const list = $('alerts-list'); list.replaceChildren();
-  if (!s.alerts.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.innerHTML = '<span class="empty-icon">◇</span>Сигналов пока нет<br>Здесь появится подозрительная активность'; list.appendChild(empty); }
-  for (const alert of s.alerts) { const row = document.createElement('div'); row.className = 'alert-row'; const symbol = document.createElement('span'); symbol.className = 'alert-symbol'; symbol.textContent = '⚑'; const content = document.createElement('div'); const title = document.createElement('strong'); title.textContent = `${alert.type} · `; title.appendChild(hostButton(alert.ip)); const detail = document.createElement('p'); detail.textContent = alert.detail; content.append(title, detail); row.append(symbol, content); list.append(row); }
+  if (!s.alerts.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = s.networks.length ? 'Сигналов пока нет. Это не подтверждает отсутствие угроз.' : 'Укажите локальные подсети: без них сигналы не анализируются.'; list.appendChild(empty); }
+  for (const alert of s.alerts) { const row = document.createElement('div'); row.className = 'alert-row'; const symbol = document.createElement('span'); symbol.className = 'alert-symbol'; symbol.textContent = '⚑'; const content = document.createElement('div'); const title = document.createElement('strong'); title.textContent = `${alert.type} · ${alert.severity === 'medium' ? 'умеренное' : 'низкое'} подозрение · `; title.appendChild(hostButton(alert.ip)); const detail = document.createElement('p'); detail.textContent = alert.detail; content.append(title, detail); if (alert.device) { const device = document.createElement('p'); device.textContent = `DHCP: ${alert.device.name || 'имя не указано'} · ${alert.device.mac || 'MAC не указан'} (не подтверждает личность устройства)`; content.appendChild(device); } if (alert.recommendation) { const advice = document.createElement('p'); advice.textContent = alert.recommendation; content.appendChild(advice); } row.append(symbol, content); list.append(row); }
   const tbody = $('hosts-list'); tbody.replaceChildren();
   if (!s.hosts.length) { const row = document.createElement('tr'), cell = document.createElement('td'); cell.colSpan = 4; cell.className = 'empty'; cell.textContent = 'Пока нет данных о потоках'; row.appendChild(cell); tbody.appendChild(row); }
   for (const host of s.hosts) { const row = document.createElement('tr'); const hostCell = document.createElement('td'); hostCell.appendChild(hostButton(host.ip)); row.appendChild(hostCell); textCell(row, host.destinations); textCell(row, host.flows); textCell(row, formatBytes(host.bytes)); tbody.appendChild(row); }
@@ -233,5 +295,5 @@ function render(s) {
   const chart = $('chart'); chart.replaceChildren(); const max = Math.max(1, ...s.buckets);
   for (const count of s.buckets) { const bar = document.createElement('div'); bar.className = 'bar'; bar.style.height = `${Math.max(1, count / max * 100)}%`; bar.title = `${count} потоков`; chart.appendChild(bar); }
 }
-async function refresh() { const revision = ++refreshRevision; try { const data = await api.snapshot(hostSort); if (revision !== refreshRevision) return; render(data); const ip = selectedHost; if (ip) { const detail = await api.host(ip); if (revision === refreshRevision && selectedHost === ip) renderHost(detail); } } catch (err) { message('collector-message', err.message, true); } }
-refresh(); setInterval(refresh, 2000);
+async function refresh() { const revision = ++refreshRevision; try { const data = await api.snapshot(hostSort); if (revision !== refreshRevision) return; render(data); const ip = selectedHost; if (ip) { const detail = await api.host(ip); if (revision === refreshRevision && selectedHost === ip) renderHost(detail); } const category = selectedCategory; if (category) { const detail = await api.category(category); if (revision === refreshRevision && selectedCategory === category) renderCategory(detail); } } catch (err) { message('collector-message', err.message, true); } }
+refresh(); setInterval(refresh, 2000); refreshHistory(); setInterval(refreshHistory, 10000);
