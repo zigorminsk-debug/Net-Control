@@ -12,15 +12,37 @@
   },
   "devDependencies": {
     "electron": "^35.7.5",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "jsdom": "^31.0.1"
   },
   "build": {
     "appId": "com.netcontrol.desktop",
     "productName": "Net Control",
     "compression": "store",
-    "directories": { "output": "dist" },
-    "files": ["src/**/*", "package.json"],
-    "win": { "signAndEditExecutable": false, "target": [{ "target": "nsis", "arch": ["x64"] }], "artifactName": "setup.exe" },
-    "nsis": { "warningsAsErrors": false, "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "setup.exe"
+    },
+    "nsis": {
+      "warningsAsErrors": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   }
 }

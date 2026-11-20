@@ -24,6 +24,6 @@ class Collector {
     return this.snapshot();
   }
   stop() { if (this.socket) { const socket = this.socket; this.socket = null; try { socket.close(); } catch {} } this.state.running = false; }
-  snapshot() { return { ...this.state, ...this.analyzer.snapshot() }; }
+  snapshot(sort) { return { ...this.state, ...this.analyzer.snapshot(Date.now(), sort) }; }
 }
 module.exports = { Collector };

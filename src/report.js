@@ -1,0 +1,36 @@
+'use strict';
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+}
+function bytes(value) {
+  const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']; let i = 0; let n = Number(value) || 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toLocaleString('ru-RU', { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
+}
+function table(headers, rows) {
+  if (!rows.length) return '<p class="empty">Нет данных за выбранное окно.</p>';
+  return `<div class="table-wrap"><table><thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(v => `<td>${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function recommendations(s) {
+  const result = [];
+  if (!s.flowCount) return ['Нет данных: настройте Traffic Flow, проверьте UDP-порт и дождитесь экспорта перед анализом.'];
+  if (!s.networks.length) result.push('Укажите локальные IPv4-подсети в настройках, чтобы разделить трафик по направлениям.');
+  if (s.alerts.some(a => a.type === 'Сканирование')) result.push('Проверьте хосты с большим числом назначений: сопоставьте адреса и время с журналами firewall и назначением узла. Это может быть легитимный сервер или сканер.');
+  if (s.alerts.some(a => a.type === 'Возможный спам')) result.push('Проверьте SMTP-активность отмеченных узлов и логи почтового сервера; исходящую почту разрешайте только доверенным системам.');
+  if (s.alerts.some(a => a.type === 'Возможный майнинг')) result.push('Проверьте процессы и назначения соединений на отмеченных хостах. Использование порта пула само по себе не доказывает майнинг.');
+  if (s.categories.some(c => c.id === 'p2p')) result.push('Проверьте предположительный P2P-трафик на соответствие политике сети. Совпадение с портом не подтверждает P2P.');
+  if (s.categories.some(c => c.id === 'other' || c.id === 'secureWeb')) result.push('Для нераспознанного и HTTPS/QUIC-трафика сопоставьте потоки с DNS, журналами прокси и инвентаризацией: только по портам назначение ресурса не определить.');
+  if (s.dropped) result.push(`Из-за лимита памяти отброшено ${s.dropped} записей с начала сбора; результаты могут быть неполными. Проверьте нагрузку и настройки экспорта.`);
+  result.push('Перед блокировкой или изоляцией подтвердите активность журналами и проверкой устройства. Учитывайте NAT, дублирование на интерфейсах, sampling и возможную потерю UDP.');
+  return result;
+}
+function buildReport(s, details, now = Date.now()) {
+  const date = new Date(now).toLocaleString('ru-RU');
+  const categoryRows = s.categories.map(c => [c.label, c.flows, bytes(c.bytes), s.bytes ? `${(c.bytes / s.bytes * 100).toFixed(1)}%` : '0%']);
+  const directionRows = Object.values(s.directions).map(d => [d.label, d.flows, bytes(d.bytes)]);
+  const alertRows = s.alerts.map(a => [a.type, a.ip, a.detail]);
+  const hostRows = s.hosts.map(h => [h.ip, h.destinations, h.flows, bytes(h.bytes)]);
+  const detailHtml = details.map(h => `<section><h3>${escapeHtml(h.ip)}</h3><p>${h.count} потоков, ${h.outgoing} исходящих (${escapeHtml(bytes(h.outgoingBytes))}) / ${h.incoming} входящих (${escapeHtml(bytes(h.incomingBytes))}), ${h.peers} других адресов; ${escapeHtml(bytes(h.bytes))} в обеих направлениях.</p><h4>Предполагаемые типы</h4>${table(['Тип', 'Потоки', 'Объём'], h.categories.map(c => [c.label, c.flows, bytes(c.bytes)]))}<h4>Топ других адресов по объёму</h4>${table(['Адрес', 'Потоки', 'Объём'], h.topPeers.map(p => [p.ip, p.flows, bytes(p.bytes)]))}<h4>Последние потоки (до 20)</h4>${table(['Время получения', 'Источник:порт', 'Назначение:порт', 'Протокол', 'Тип / признак', 'Объём'], h.records.slice(0, 20).map(f => [new Date(f.time).toLocaleString('ru-RU'), `${f.src}:${f.srcPort}`, `${f.dst}:${f.dstPort}`, f.protocol === 6 ? 'TCP' : f.protocol === 17 ? 'UDP' : `IP ${f.protocol}`, `${f.category} — ${f.evidence}`, bytes(f.bytes)]))}</section>`).join('');
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>Отчёт Net Control</title><style>body{font:15px/1.55 Segoe UI,Arial,sans-serif;color:#1c3030;max-width:1100px;margin:40px auto;padding:0 24px}h1,h2,h3{color:#143c30}h2{border-bottom:1px solid #cedbd4;padding-bottom:8px;margin-top:38px}section{margin:26px 0}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;border-bottom:1px solid #dde7e1;padding:8px;vertical-align:top;overflow-wrap:anywhere}th{background:#eff6f1}.table-wrap{overflow:auto}.note{background:#edf6ef;border-left:4px solid #438d62;padding:14px}.empty{color:#6d7d76}.summary{display:flex;gap:22px;flex-wrap:wrap}.summary b{font-size:20px;display:block}li{margin:8px 0}@media print{body{margin:0}section{break-inside:avoid}}</style></head><body><h1>Отчёт Net Control</h1><p>Создан: ${escapeHtml(date)} · окно: последние 5 минут до создания · сборщик: ${s.running ? 'запущен' : 'остановлен'}</p><div class="note">Конфиденциально: отчёт содержит IP-адреса и сведения о сетевой активности. Время — получение записи, а не время начала соединения. Это эвристический анализ метаданных, не доказательство угрозы. Порты не подтверждают приложение или владельца ресурса; HTTPS/QUIC нельзя надёжно разделить по сервисам. Данные только из памяти; возможны пропуски, sampling и двойной учёт.</div><h2>Сводка</h2><div class="summary"><div><b>${s.flowCount}</b>потоков</div><div><b>${escapeHtml(bytes(s.bytes))}</b>трафика</div><div><b>${s.hostCount}</b>источников</div><div><b>${s.alertCount}</b>сигналов</div><div><b>${s.dropped}</b>отброшено по лимиту с начала сбора</div></div><h2>Направления трафика</h2><p>Относительно локальных IPv4-подсетей: ${escapeHtml(s.networks.join(', ') || 'не заданы')}. Внутренний — между локальными сетями; транзитный — между адресами вне них. IPv6 и записи без заданных подсетей — неопределённые. Влияние NAT и двойного учёта необходимо проверить.</p>${table(['Направление', 'Потоки', 'Объём'], directionRows)}<h2>Типы трафика (предположительно)</h2>${table(['Тип', 'Потоки', 'Объём', 'Доля'], categoryRows)}<h2>Сигналы безопасности</h2><p>Показано до 100 сигналов из ${s.alertCount}.</p>${table(['Сигнал', 'Источник', 'Признак'], alertRows)}<h2>Рекомендации</h2><ul>${recommendations(s).map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul><h2>Активные источники</h2><p>До 30 источников по объёму исходящих записей; учтены только данные окна.</p>${table(['IP источника', 'Назначения', 'Потоки', 'Объём'], hostRows)}<h2>Разбор хостов</h2><p>До 20 источников с наибольшим объёмом. В деталях учтены потоки в обе стороны; их сумма может превышать общую, если один поток относится к нескольким хостам.</p>${detailHtml || '<p class="empty">Нет данных о хостах.</p>'}</body></html>`;
+}
+module.exports = { buildReport, recommendations, escapeHtml };
