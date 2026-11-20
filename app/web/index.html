@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Net-Control — анализатор сетевого трафика</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330;
+    --border: #2d333f; --text: #e6edf3; --muted: #8b949e;
+    --accent: #2f81f7; --accent2: #3fb950;
+    --crit: #f85149; --warn: #d29922; --info: #58a6ff;
+    --mining: #f85149; --c2: #f85149; --ddos: #f85149; --exfil: #ff7d3a;
+    --scan: #d29922; --beacon: #e3b341; --spam: #bc8cff;
+    --dns: #39c5cf; --flood: #56d364; --crypto: #8b949e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; background: var(--panel);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 10px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
+  .logo .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent2); box-shadow: 0 0 12px var(--accent2); }
+  .logo small { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .status-pill {
+    padding: 4px 12px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--border); background: var(--panel2); color: var(--muted);
+  }
+  .status-pill.active { color: var(--accent2); border-color: var(--accent2); }
+  .status-pill.error { color: var(--crit); border-color: var(--crit); }
+  main { max-width: 1500px; margin: 0 auto; padding: 20px; }
+  .toolbar {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 14px; border-radius: 10px;
+  }
+  button, .btn {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    transition: background .15s, border-color .15s;
+  }
+  button:hover { background: #262d3b; border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #4a8ef8; }
+  button.danger { background: transparent; border-color: var(--crit); color: var(--crit); }
+  button.danger:hover { background: rgba(248,81,73,.15); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  select, input[type=text], input[type=number] {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  }
+  .dropzone {
+    flex: 1; min-width: 240px; border: 1px dashed var(--border);
+    border-radius: 8px; padding: 10px 14px; color: var(--muted);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .dropzone.over { border-color: var(--accent); color: var(--accent); background: rgba(47,129,247,.08); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .kpi .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .kpi .value { font-size: 26px; font-weight: 700; }
+  .kpi .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .kpi.crit .value { color: var(--crit); }
+  .kpi.warn .value { color: var(--warn); }
+  .kpi.ok .value { color: var(--accent2); }
+  .cards { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; margin-bottom: 18px; }
+  @media (max-width: 1100px) { .cards { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px;
+  }
+  .card h3 { font-size: 13px; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+  canvas { width: 100%; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .tab {
+    padding: 10px 18px; cursor: pointer; color: var(--muted);
+    border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none;
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; }
+  tbody tr:hover { background: var(--panel2); cursor: pointer; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .sev-critical { background: rgba(248,81,73,.18); color: var(--crit); border: 1px solid var(--crit); }
+  .sev-warning { background: rgba(210,153,34,.15); color: var(--warn); border: 1px solid var(--warn); }
+  .sev-info { background: rgba(88,166,255,.12); color: var(--info); border: 1px solid var(--info); }
+  .score { font-weight: 700; }
+  .score.crit { color: var(--crit); } .score.warn { color: var(--warn); } .score.info { color: var(--muted); }
+  .cat-pill { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11px; margin: 1px 2px; }
+  .filters { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .filters input { min-width: 200px; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+  .modal-bg {
+    display: none; position: fixed; inset: 0; background: rgba(1,4,9,.8);
+    z-index: 100; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow: auto;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    width: 100%; max-width: 960px; padding: 20px;
+  }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .modal-head h2 { font-size: 17px; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; padding: 0 6px; }
+  .modal-grid { display: grid; grid-template-columns: 280px 1fr; gap: 18px; }
+  @media (max-width: 800px) { .modal-grid { grid-template-columns: 1fr; } }
+  .kv { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .kv span:first-child { color: var(--muted); }
+  .toasts { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--panel2); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+    border-radius: 8px; padding: 10px 16px; max-width: 380px; font-size: 13px;
+    animation: slideIn .2s ease;
+  }
+  .toast.error { border-left-color: var(--crit); }
+  .toast.ok { border-left-color: var(--accent2); }
+  @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+  .setting-row { display: grid; grid-template-columns: 320px 1fr; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .setting-row label { color: var(--muted); }
+  .setting-row input { width: 100%; }
+  .hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span class="dot"></span> Net-Control <small>анализатор сетевого трафика и угроз</small></div>
+  <div class="status-pill" id="statusPill">старт…</div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <label class="btn" for="fileInput">📂 Открыть pcap-файл</label>
+    <input type="file" id="fileInput" accept=".pcap" style="display:none">
+    <button id="demoBtn">🧪 Демо-анализ</button>
+    <div class="dropzone" id="dropzone">
+      <span>Или перекиньте файл .pcap сюда</span>
+      <span id="dropHint" style="color:var(--muted);font-size:12px"></span>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <label for="ifaceSelect">Интерфейс:</label>
+    <select id="ifaceSelect" style="min-width:280px"><option value="">— загрузить список —</option></select>
+    <input type="text" id="ifaceManual" placeholder="или введите имя интерфейса вручную" style="min-width:280px">
+    <button id="captureBtn" class="primary">▶ Начать захват</button>
+    <button id="captureStopBtn" class="danger">■ Остановить</button>
+    <span class="hint" id="captureHint" style="margin:0"></span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="label">Хостов в анализе</div><div class="value" id="kpiHosts">—</div><div class="sub" id="kpiHostsSub"></div></div>
+    <div class="kpi"><div class="label">Тревоги всего</div><div class="value" id="kpiAlerts">—</div><div class="sub" id="kpiAlertsSub"></div></div>
+    <div class="kpi crit"><div class="label">Критические</div><div class="value" id="kpiCrit">—</div><div class="sub">тревоги высокого уровня</div></div>
+    <div class="kpi"><div class="label">Объём трафика</div><div class="value" id="kpiBytes">—</div><div class="sub" id="kpiTime"></div></div>
+    <div class="kpi ok"><div class="label">Уровень риска сети</div><div class="value" id="kpiRisk">—</div><div class="sub">по максимальному хосту</div></div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><h3>Трафик и тревоги по времени</h3><canvas id="trafficChart" height="220"></canvas>
+      <div class="legend"><span><i style="background:#2f81f7"></i>байты</span><span><i style="background:#f85149"></i>тревоги</span></div></div>
+    <div class="card"><h3>Тревоги по категориям</h3><canvas id="catChart" height="220"></canvas></div>
+    <div class="card"><h3>Распределение протоколов</h3><canvas id="protoChart" height="220"></canvas>
+      <div class="legend" id="protoLegend"></div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="hosts">🖥 Хосты</div>
+    <div class="tab" data-tab="alerts">⚠ Тревоги</div>
+    <div class="tab" data-tab="network">📊 Сеть</div>
+    <div class="tab" data-tab="settings">⚙ Настройки</div>
+  </div>
+
+  <div class="panel active" id="panel-hosts">
+    <div class="filters">
+      <input type="text" id="hostSearch" placeholder="Поиск по IP…">
+      <select id="hostSeverity">
+        <option value="">Любой уровень</option>
+        <option value="critical">Критические</option>
+        <option value="warning">Предупреждения</option>
+        <option value="info">Информация</option>
+      </select>
+      <span class="hint" style="margin:0">Кликните по строке хоста для детального анализа</span>
+    </div>
+    <div class="card"><div class="table-wrap"><table id="hostsTable">
+      <thead><tr>
+        <th data-k="ip">IP-адрес</th><th data-k="score">Риск</th><th data-k="severity">Уровень</th>
+        <th data-k="packets">Пакеты</th><th data-k="bytes_out">Исх. данные</th>
+        <th data-k="conns">Подкл.</th><th data-k="ports_count">Портов</th>
+        <th>Категории</th>
+      </tr></thead><tbody id="hostsBody"></tbody></table></div></div>
+  </div>
+
+  <div class="panel" id="panel-alerts">
+    <div class="filters">
+      <input type="text" id="alertSearch" placeholder="Поиск по хосту / описанию…">
+      <select id="alertCategory"><option value="">Все категории</option></select>
+      <select id="alertSeverity">
+        <option value="">Любой уровень</option>
+        <option value="critical">Критические</option>
+        <option value="warning">Предупреждения</option>
+        <option value="info">Информация</option>
+      </select>
+    </div>
+    <div class="card"><div class="table-wrap"><table id="alertsTable">
+      <thead><tr><th>#</th><th>Время</th><th>Хост</th><th>Категория</th><th>Уровень</th><th>Описание</th><th>Доказательства</th></tr></thead>
+      <tbody id="alertsBody"></tbody></table></div></div>
+  </div>
+
+  <div class="panel" id="panel-network">
+    <div class="card" style="margin-bottom:12px"><h3>Протоколы</h3>
+      <div class="table-wrap"><table id="protosTable"><thead><tr><th>Протокол</th><th>Пакеты</th><th>Доля</th></tr></thead><tbody id="protosBody"></tbody></table></div></div>
+    <div class="card"><h3>Топ-хосты по объёму трафика</h3>
+      <div class="table-wrap"><table id="talkersTable"><thead><tr><th>#</th><th>IP-адрес</th><th>Объём данных</th></tr></thead><tbody id="talkersBody"></tbody></table></div></div>
+  </div>
+
+  <div class="panel" id="panel-settings">
+    <div class="card" style="max-width:800px">
+      <h3>Пороги детектирования</h3>
+      <div class="hint">Значения применяются к новому анализу. При изменениях введите их и нажмите «Сохранить».</div>
+      <div id="settingsForm"></div>
+      <div style="margin-top:14px"><button id="saveSettingsBtn" class="primary">Сохранить настройки</button></div>
+      <div class="hint" style="margin-top:14px">
+        Также можно дополнить сигнатуры угроз, создав файл <b>app/signatures.user.json</b>
+        со списками mining_domains, c2_ips, c2_domains, scan_paths, spam_keywords (см. README).
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modalTitle">Детали хоста</h2>
+      <button class="modal-close" id="modalClose">×</button>
+    </div>
+    <div class="modal-grid">
+      <div>
+        <canvas id="gauge" height="180"></canvas>
+        <div id="modalKv"></div>
+      </div>
+      <div>
+        <h3 style="font-size:13px;color:var(--muted);margin-bottom:8px">Тревоги хоста</h3>
+        <div id="modalAlerts"></div>
+        <h3 style="font-size:13px;color:var(--muted);margin:14px 0 8px">Соединения (топ по пакетам)</h3>
+        <div class="table-wrap"><table id="modalConns"><thead><tr>
+          <th>Адрес:порт</th><th>Пр.</th><th>Пакеты</th><th>Исх/Вх</th><th>Время</th>
+        </tr></thead><tbody id="modalConnsBody"></tbody></table></div>
+        <h3 style="font-size:13px;color:var(--muted);margin:14px 0 8px">DNS-запросы</h3>
+        <div id="modalDns" class="hint"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+const CAT_COLORS = {
+  mining: "#f85149", c2: "#f85149", ddos: "#f85149", exfil: "#ff7d3a",
+  scan: "#d29922", beacon: "#e3b341", spam: "#bc8cff", dns: "#39c5cf",
+  flood: "#56d364", crypto: "#8b949e"
+};
+const CAT_RU = {
+  mining: "Криптомайнинг", c2: "C2-командный центр", ddos: "DDoS",
+  exfil: "Эксфильтрация", scan: "Сканирование", beacon: "Бипинг",
+  spam: "Спам", dns: "Подозр. DNS", flood: "Син-флуд", crypto: "Крипто-адресы"
+};
+const PROTO_COLORS = ["#2f81f7","#3fb950","#d29922","#bc8cff","#39c5cf","#8b949e","#ff7d3a"];
+let state = { hosts: [], alerts: [], meta: {}, stats: {}, sort: { k: "score", dir: -1 }, detail: {} };
+let pollTimer = null;
+
+function toast(msg, kind = "") {
+  const el = document.createElement("div");
+  el.className = "toast " + kind; el.textContent = msg;
+  document.getElementById("toasts").appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s";
+    setTimeout(() => el.remove(), 300); }, 4200);
+}
+function fmtBytes(n) {
+  if (!n) return "0 Б";
+  const u = ["Б","КБ","МБ","ГБ","ТБ"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return n.toFixed(i ? 1 : 0) + " " + u[i];
+}
+function fmtTime(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+function fmtDur(sec) {
+  if (!sec) return "—";
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m + " мин " + s + " с";
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function sevBadge(sev) {
+  return `<span class="badge sev-${sev}">${sev === "critical" ? "Критический" : sev === "warning" ? "Предупреждение" : "Информация"}</span>`;
+}
+
+/* ---------------- карты ---------------- */
+function drawLine(canvasId, series) {
+  const cv = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const pad = { l: 56, r: 8, t: 10, b: 22 };
+  const all = series.flatMap(s => s.data);
+  if (!all.length) { ctx.fillStyle = "#8b949e"; ctx.fillText("нет данных", 10, H/2); return; }
+  let maxX = Math.max(...all.map(d => d[0]), 1), maxY = 0;
+  series.forEach(s => s.data.forEach(d => {
+    if (d[1] > maxY) maxY = d[1];
+  }));
+  if (maxY <= 0) maxY = 1;
+  const X = t => pad.l + (t / maxX) * (W - pad.l - pad.r);
+  const Y = v => H - pad.b - (v / maxY) * (H - pad.t - pad.b);
+  ctx.strokeStyle = "#2d333f"; ctx.fillStyle = "#8b949e"; ctx.lineWidth = 1;
+  ctx.font = "11px sans-serif";
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (H - pad.t - pad.b) * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillText(fmtBytes(maxY * (4 - i) / 4), 4, y + 4);
+  }
+  ctx.fillText(fmtTime(0), pad.l, H - 6);
+  ctx.fillText(fmtTime(maxX), W - pad.r - 40, H - 6);
+  series.forEach(s => {
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    s.data.forEach((d, i) => {
+      const x = X(d[0]), y = Y(d[1]);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+  });
+}
+function drawBars(canvasId, items, horizontal) {
+  const cv = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  if (!items.length) { ctx.fillStyle = "#8b949e"; ctx.fillText("нет данных", 10, H/2); return; }
+  const max = Math.max(...items.map(i => i.v), 1);
+  const pad = { l: horizontal ? 130 : 8, r: 10, t: 6, b: 22 };
+  const cw = horizontal ? 14 : W - pad.l - pad.r;
+  const rh = Math.min(horizontal ? 22 : 34, (H - pad.t - pad.b) / items.length);
+  items.forEach((it, i) => {
+    const y = pad.t + i * rh + (rh - 14) / 2;
+    const bw = horizontal
+      ? (it.v / max) * (W - pad.l - pad.r - 60)
+      : cw;
+    const x = horizontal ? pad.l : pad.l;
+    ctx.fillStyle = it.color || "#2f81f7";
+    if (horizontal) {
+      ctx.beginPath(); ctx.roundRect(x, y, bw, 14, 3); ctx.fill();
+      ctx.fillStyle = "#e6edf3"; ctx.font = "12px sans-serif";
+      ctx.fillText(it.label, 4, y + 11);
+      ctx.fillStyle = "#8b949e";
+      ctx.fillText(it.v, x + bw + 6, y + 11);
+    } else {
+      ctx.fillRect(x, pad.t + i * rh, bw, rh - 6);
+      ctx.fillStyle = "#8b949e"; ctx.font = "11px sans-serif";
+      ctx.fillText(it.label, 6, H - pad.b - i * rh - 2);
+    }
+  });
+}
+function drawDonut(canvasId, items) {
+  const cv = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const total = items.reduce((a, i) => a + i.v, 0);
+  if (!total) { ctx.fillStyle = "#8b949e"; ctx.fillText("нет данных", 10, H/2); return; }
+  const cx = W / 2, cy = H / 2, r = Math.min(W, H) / 2 - 8;
+  let a0 = -Math.PI / 2;
+  items.forEach((it, i) => {
+    const a1 = a0 + (it.v / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, a0, a1); ctx.closePath();
+    ctx.fillStyle = it.color || PROTO_COLORS[i % PROTO_COLORS.length];
+    ctx.fill(); a0 = a1;
+  });
+  ctx.fillStyle = "#0d1117";
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#e6edf3"; ctx.font = "bold 20px sans-serif";
+  ctx.textAlign = "center"; ctx.fillText(fmtBytes(total), cx, cy + 6);
+  ctx.textAlign = "start";
+}
+function drawGauge(canvasId, score, sev) {
+  const cv = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2 + 6, r = Math.min(W, H) / 2 - 16;
+  const color = sev === "critical" ? "#f85149" : sev === "warning" ? "#d29922" : "#56d364";
+  ctx.lineWidth = 16; ctx.lineCap = "round";
+  ctx.strokeStyle = "#2d333f";
+  ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 2.25); ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI * 0.75,
+    Math.PI * 0.75 + (score / 100) * Math.PI * 1.5); ctx.stroke();
+  ctx.fillStyle = "#e6edf3"; ctx.font = "bold 34px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(score + "/100", cx, cy - 6);
+  ctx.font = "12px sans-serif"; ctx.fillStyle = "#8b949e";
+  ctx.fillText(sev === "critical" ? "Критический риск" :
+               sev === "warning" ? "Повышенный риск" : "Низкий риск", cx, cy + 20);
+  ctx.textAlign = "start";
+}
+
+/* ---------------- обновление UI ---------------- */
+function renderKpis() {
+  const st = state.stats || {}, meta = state.meta || {};
+  document.getElementById("kpiHosts").textContent = st.hosts_count ?? 0;
+  document.getElementById("kpiHostsSub").textContent =
+    (meta.mode === "demo" ? "демо-сценарий" : meta.mode === "capture" ? "живой захват"
+     : meta.mode === "file" ? "файл pcap" : "нет данных") + " · " + (meta.packets ?? 0) + " пакетов";
+  document.getElementById("kpiAlerts").textContent = st.alerts_count ?? 0;
+  document.getElementById("kpiCrit").textContent = st.critical_count ?? 0;
+  document.getElementById("kpiBytes").textContent = fmtBytes(meta.bytes ?? 0);
+  document.getElementById("kpiTime").textContent = fmtDur(meta.duration ?? 0);
+  const best = (state.hosts || []).slice().sort((a, b) => b.score - a.score)[0];
+  const riskEl = document.getElementById("kpiRisk");
+  if (best) {
+    riskEl.textContent = best.score;
+    riskEl.className = "value " + (best.score >= 60 ? "crit" : best.score >= 25 ? "warn" : "");
+  } else { riskEl.textContent = "—"; riskEl.className = "value"; }
+}
+function renderHosts() {
+  const tb = document.getElementById("hostsBody");
+  const q = document.getElementById("hostSearch").value.trim().toLowerCase();
+  const sev = document.getElementById("hostSeverity").value;
+  const rows = (state.hosts || [])
+    .filter(h => (!q || h.ip.includes(q)) && (!sev || h.severity === sev))
+    .sort((a, b) => (state.sort.k ?
+      (a[state.sort.k] > b[state.sort.k] ? state.sort.dir : a[state.sort.k] < b[state.sort.k] ? -state.sort.dir : 0) : 0))
+    .slice(0, 300);
+  tb.innerHTML = rows.length ? rows.map(h => {
+    const cats = Object.keys(h.cats || {}).map(c =>
+      `<span class="cat-pill" style="background:${CAT_COLORS[c] || '#666'}22;color:${CAT_COLORS[c] || '#666'};border:1px solid ${CAT_COLORS[c] || '#666'}">${CAT_RU[c] || c}×${h.cats[c]}</span>`).join("");
+    return `<tr onclick="openHost('${esc(h.ip)}')">
+      <td>${esc(h.ip)}</td>
+      <td class="score ${h.score >= 60 ? "crit" : h.score >= 25 ? "warn" : "info"}">${h.score}</td>
+      <td>${sevBadge(h.severity)}</td>
+      <td>${h.packets}</td><td>${fmtBytes(h.bytes_out)}</td>
+      <td>${h.conns}</td><td>${h.ports_count}</td>
+      <td>${cats || "<span style='color:var(--muted)'>—</span>"}</td></tr>`;
+  }).join("") : `<tr><td colspan="8" class="empty">Нет данных. Загрузите pcap-файл, запустите демо-анализ или захват.</td></tr>`;
+}
+function renderAlerts() {
+  const tb = document.getElementById("alertsBody");
+  const q = document.getElementById("alertSearch").value.trim().toLowerCase();
+  const cat = document.getElementById("alertCategory").value;
+  const sev = document.getElementById("alertSeverity").value;
+  const rows = (state.alerts || [])
+    .filter(a => (!q || (a.host + a.title + a.detail).toLowerCase().includes(q)) &&
+      (!cat || a.category === cat) && (!sev || a.severity === sev))
+    .slice(-500).reverse();
+  tb.innerHTML = rows.length ? rows.map(a => `<tr onclick="openHost('${esc(a.host)}')">
+    <td>${a.id}</td><td>${fmtTime(a.ts)}</td><td>${esc(a.host)}</td>
+    <td><span class="cat-pill" style="background:${CAT_COLORS[a.category] || '#666'}22;color:${CAT_COLORS[a.category] || '#666'};border:1px solid ${CAT_COLORS[a.category] || '#666'}">${esc(a.title)}</span></td>
+    <td>${sevBadge(a.severity)}</td>
+    <td style="white-space:normal;max-width:420px">${esc(a.detail)}</td>
+    <td style="white-space:normal;max-width:340px;color:var(--muted);font-size:12px">${esc((a.evidence || []).join("; "))}</td>
+  </tr>`).join("") : `<tr><td colspan="7" class="empty">Тревоги не обнаружены.</td></tr>`;
+}
+function renderNetwork() {
+  const protos = state.stats && state.stats.protos || {};
+  const total = Object.values(protos).reduce((a, b) => a + b, 0);
+  document.getElementById("protosBody").innerHTML = Object.entries(protos).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td>
+      <td>${total ? (v / total * 100).toFixed(1) : 0}%</td></tr>`).join("")
+    || `<tr><td colspan="3" class="empty">Нет данных</td></tr>`;
+  const items = Object.entries(protos).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v], i) =>
+    ({ label: k, v, color: PROTO_COLORS[i % PROTO_COLORS.length] }));
+  drawDonut("protoChart", items);
+  document.getElementById("protoLegend").innerHTML = items.map(it =>
+    `<span><i style="background:${it.color}"></i>${esc(it.label)} — ${it.v}</span>`).join("");
+  document.getElementById("talkersBody").innerHTML = ((state.stats || {}).top_talkers || [])
+    .map((t, i) => `<tr><td>${i + 1}</td><td>${esc(t.ip)}</td><td>${fmtBytes(t.bytes)}</td></tr>`).join("")
+    || `<tr><td colspan="3" class="empty">Нет данных</td></tr>`;
+}
+function renderCharts() {
+  const st = state.stats || {}, meta = state.meta || {};
+  const t0 = meta.start_ts || 0;
+  // агрегируем тревоги по временным бинам для графика
+  const aMap = {};
+  (st.alerts_timeline || []).forEach(([t, c]) => { aMap[Math.round(t)] = c; });
+  const series = [];
+  if (state.hosts && state.hosts.length && meta.start_ts) {
+    const byT = {};
+    state.hosts.forEach(h => {
+      (state.detail[h.ip] ? state.detail[h.ip].timeline : []).forEach(([t, b]) => {
+        byT[Math.round(t)] = (byT[Math.round(t)] || 0) + b;
+      });
+    });
+    series.push({ color: "#2f81f7", data: Object.entries(byT).map(([t, b]) => [Number(t), b]) });
+  }
+  series.push({ color: "#f85149", data: Object.entries(aMap).map(([t, c]) => [Number(t), c]) });
+  drawLine("trafficChart", series.filter(s => s.data.length));
+  const cats = st.categories || {};
+  drawBars("catChart", Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+    ({ label: CAT_RU[k] || k, v, color: CAT_COLORS[k] || "#666" })), true);
+}
+async function refreshAll() {
+  try {
+    const [status, stats, hosts, alerts] = await Promise.all([
+      fetch("/api/status").then(r => r.json()),
+      fetch("/api/stats").then(r => r.json()),
+      fetch("/api/hosts").then(r => r.json()),
+      fetch("/api/alerts").then(r => r.json()),
+    ]);
+    const pill = document.getElementById("statusPill");
+    if (status.mode === "capture") {
+      pill.className = "status-pill active";
+      pill.textContent = "🟢 Живой захват · " + status.capture_count + " пакетов";
+    } else if (status.running) {
+      pill.className = "status-pill active"; pill.textContent = "🟢 Захват";
+    } else if (status.mode === "demo") { pill.className = "status-pill active"; pill.textContent = "🧪 Демо-анализ"; }
+    else if (status.mode === "file") { pill.className = "status-pill"; pill.textContent = "📁 Файл проанализован"; }
+    else { pill.className = "status-pill"; pill.textContent = "ожидание данных"; }
+    state.meta = stats.meta || {};
+    state.stats = stats.stats || {};
+    state.hosts = hosts.hosts || [];
+    state.alerts = alerts.alerts || [];
+    if (state.hosts.length) {
+      const ips = state.hosts.map(h => h.ip);
+      const need = ips.filter(ip => !state.detail[ip]);
+      if (need.length) {
+        await Promise.all(need.slice(0, 30).map(ip =>
+          fetch("/api/hosts/" + encodeURIComponent(ip)).then(r => r.json())
+            .then(d => { if (d.detail) state.detail[ip] = d.detail; })
+            .catch(() => {})));
+      }
+    }
+    renderKpis(); renderHosts(); renderAlerts(); renderNetwork(); renderCharts();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/* ---------------- модальное окно хоста ---------------- */
+async function openHost(ip) {
+  if (state.detail[ip]) { showHost(ip); return; }
+  const r = await fetch("/api/hosts/" + encodeURIComponent(ip));
+  const d = await r.json();
+  if (!d.detail) { toast("Детали хоста не найдены", "error"); return; }
+  state.detail[ip] = d.detail;
+  showHost(ip);
+}
+function showHost(ip) {
+  const h = state.hosts.find(x => x.ip === ip);
+  const det = state.detail[ip];
+  document.getElementById("modalTitle").textContent = "Детали хоста " + ip;
+  drawGauge("gauge", h ? h.score : 0, h ? h.severity : "info");
+  document.getElementById("modalKv").innerHTML = h ? `
+    <div class="kv"><span>Уровень</span><span>${sevBadge(h.severity)}</span></div>
+    <div class="kv"><span>Пакеты</span><span>${h.packets}</span></div>
+    <div class="kv"><span>Исх. / Вх. данные</span><span>${fmtBytes(h.bytes_out)} / ${fmtBytes(h.bytes_in)}</span></div>
+    <div class="kv"><span>Подключений</span><span>${h.conns} (внешних: ${h.external_conns})</span></div>
+    <div class="kv"><span>Портов</span><span>${h.ports_count}</span></div>
+    <div class="kv"><span>DNS-запросов</span><span>${h.dns_count}</span></div>
+    <div class="kv"><span>Первое / последнее</span><span>${fmtTime(h.first_ts)} / ${fmtTime(h.last_ts)}</span></div>` : "";
+  const alerts = det.alerts || [];
+  document.getElementById("modalAlerts").innerHTML = alerts.length ? alerts.map(a => `
+    <div style="background:var(--panel2);border:1px solid var(--border);border-left:3px solid ${CAT_COLORS[a.category] || '#666'};
+      border-radius:6px;padding:8px 10px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;gap:8px">
+        <b>${esc(a.title)}</b>${sevBadge(a.severity)}</div>
+      <div style="font-size:12px;color:var(--muted)">${esc(a.detail)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${esc((a.evidence || []).join("; "))}</div>
+    </div>`).join("") : `<div class="empty">Тревоги не обнаружены</div>`;
+  document.getElementById("modalConnsBody").innerHTML = (det.connections || []).map(c => `
+    <tr><td>${esc(c.dst)}:${c.dport}</td><td>${esc(c.proto)}</td><td>${c.packets}</td>
+    <td>${fmtBytes(c.bytes_out)} / ${fmtBytes(c.bytes_in)}</td>
+    <td>${fmtTime(c.first_ts)} → ${fmtTime(c.last_ts)}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="empty">Соединений нет</td></tr>`;
+  document.getElementById("modalDns").textContent = (det.dns_domains || []).length
+    ? det.dns_domains.join(", ") : "DNS-запросов нет";
+  document.getElementById("modalBg").classList.add("open");
+}
+document.getElementById("modalClose").onclick = () => document.getElementById("modalBg").classList.remove("open");
+document.getElementById("modalBg").onclick = e => { if (e.target.id === "modalBg") e.currentTarget.classList.remove("open"); };
+
+/* ---------------- действия ---------------- */
+async function analyzeFile(data, name) {
+  try {
+    const r = await fetch("/api/analyze", { method: "POST", body: data });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "ошибка анализа");
+    toast(`Файл ${name} проанализован: ${j.meta.packets} пакетов`, "ok");
+    await refreshAll();
+  } catch (e) { toast(e.message, "error"); }
+}
+document.getElementById("fileInput").addEventListener("change", e => {
+  const f = e.target.files[0]; if (f) analyzeFile(f, f.name);
+  e.target.value = "";
+});
+const dz = document.getElementById("dropzone");
+["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("over"); }));
+dz.addEventListener("drop", e => {
+  const f = e.dataTransfer.files[0];
+  if (f) analyzeFile(f, f.name);
+});
+document.getElementById("demoBtn").addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/demo", { method: "POST" });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "ошибка");
+    toast("Демо-анализ завершён: " + j.meta.packets + " пакетов", "ok");
+    await refreshAll();
+  } catch (e) { toast(e.message, "error"); }
+});
+async function loadInterfaces() {
+  try {
+    const r = await fetch("/api/interfaces"); const j = await r.json();
+    const sel = document.getElementById("ifaceSelect");
+    sel.innerHTML = '<option value="">— загрузить список —</option>';
+    if (j.ok && j.interfaces.length) {
+      j.interfaces.forEach(i => {
+        const o = document.createElement("option"); o.value = i; o.textContent = i; sel.appendChild(o);
+      });
+    } else {
+      sel.innerHTML = '<option value="">— интерфейсы Npcap unavailable —</option>';
+      document.getElementById("captureHint").textContent = j.error || "Npcap не найден";
+    }
+  } catch (e) { /* ignore */ }
+}
+document.getElementById("ifaceSelect").addEventListener("change", e => {
+  if (e.target.value) document.getElementById("ifaceManual").value = e.target.value;
+});
+document.getElementById("captureBtn").addEventListener("click", async () => {
+  const iface = (document.getElementById("ifaceManual").value ||
+    document.getElementById("ifaceSelect").value || "").trim();
+  if (!iface) { toast("Выберите или введите интерфейс захвата", "error"); return; }
+  try {
+    const r = await fetch("/api/capture/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interface: iface }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "не удалось начать захват");
+    toast("Захват запущен: " + iface, "ok");
+    document.getElementById("captureHint").textContent = "потребуются права администратора";
+    await refreshAll();
+  } catch (e) { toast(e.message, "error"); }
+});
+document.getElementById("captureStopBtn").addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/capture/stop", { method: "POST" });
+    const j = await r.json();
+    toast("Захват остановлен, обработано " + (j.captured || 0) + " пакетов", "ok");
+    await refreshAll();
+  } catch (e) { toast(e.message, "error"); }
+});
+document.getElementById("loadIfacesBtn") && null;
+
+/* ---------------- настройки ---------------- */
+const SETTING_DEFS = [
+  ["scan_ports_warn", "Порог сканирования (предупреждение, шт. портов)"],
+  ["scan_ports_crit", "Порог сканирования (критично, шт. портов)"],
+  ["beacon_min_count", "Бипинг: минимум пакетов в потоке"],
+  ["beacon_max_interval", "Бипинг: макс. интервал (сек)"],
+  ["exfil_mb", "Эксфильтрация: мин. объём (МБ)"],
+  ["exfil_ratio", "Эксфильтрация: коэффициент исход/вход"],
+  ["dns_entropy", "DNS: порог энтропии домена"],
+  ["syn_flood_count", "Син-флуд: количество SYN-пакетов"],
+  ["ddos_src_count", "DDoS: число источников на цель"],
+];
+async function loadSettings() {
+  const r = await fetch("/api/settings"); const j = await r.json();
+  const form = document.getElementById("settingsForm");
+  form.innerHTML = SETTING_DEFS.map(([k, label]) =>
+    `<div class="setting-row"><label>${label}</label>
+     <input type="number" id="set_${k}" value="${j.settings[k] ?? ""}"></div>`).join("");
+}
+document.getElementById("saveSettingsBtn").addEventListener("click", async () => {
+  const data = {};
+  SETTING_DEFS.forEach(([k]) => {
+    const v = document.getElementById("set_" + k).value;
+    if (v !== "") data[k] = Number(v);
+  });
+  const r = await fetch("/api/settings", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data) });
+  const j = await r.json();
+  toast("Настройки сохранены", "ok");
+  loadSettings();
+});
+
+/* ---------------- таблицы / табы ---------------- */
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  document.getElementById("panel-" + t.dataset.tab).classList.add("active");
+  renderCharts();
+}));
+document.querySelectorAll("#hostsTable th").forEach(th => th.addEventListener("click", () => {
+  const k = th.dataset.k;
+  if (state.sort.k === k) state.sort.dir *= -1; else { state.sort.k = k; state.sort.dir = -1; }
+  renderHosts();
+}));
+document.getElementById("hostSearch").addEventListener("input", renderHosts);
+document.getElementById("hostSeverity").addEventListener("change", renderHosts);
+document.getElementById("alertSearch").addEventListener("input", renderAlerts);
+document.getElementById("alertCategory").addEventListener("change", () => {
+  const cats = [...new Set(state.alerts.map(a => a.category))].sort();
+  document.getElementById("alertCategory").innerHTML =
+    '<option value="">Все категории</option>' +
+    cats.map(c => `<option value="${c}">${CAT_RU[c] || c}</option>`).join("");
+  renderAlerts();
+});
+document.getElementById("alertSeverity").addEventListener("change", renderAlerts);
+window.addEventListener("resize", () => renderCharts());
+
+/* ---------------- запуск ---------------- */
+loadSettings();
+loadInterfaces();
+refreshAll();
+pollTimer = setInterval(refreshAll, 3000);
+</script>
+</body>
+</html>
