@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Net Control</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">◈</div><div><strong>net<span>control</span></strong><small>NETWORK INTELLIGENCE</small></div></div>
+    <div class="nav-caption">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+    <nav><button class="nav-item active" data-view="dashboard"><span>▦</span> Обзор сети</button><button class="nav-item" data-view="settings"><span>⚙</span> Подключение</button></nav>
+    <div class="side-bottom"><div class="side-icon">◇</div><strong>Ваши данные остаются здесь</strong><p>Анализ выполняется локально на вашем компьютере.</p><span class="version">NET CONTROL · V1.0</span></div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumb">Рабочее пространство <span>/</span> <b id="breadcrumb">Обзор сети</b></div><div class="top-right"><span class="live-indicator" id="top-status"><i></i> Не подключено</span><span class="avatar">NC</span></div></header>
+    <section id="dashboard" class="view active-view">
+      <div class="heading"><div><div class="eyebrow"><span></span> МОНИТОРИНГ СЕТИ</div><h1>Обзор сети</h1><p>Трафик и подозрительная активность в одном месте.</p></div><button class="button secondary" id="open-settings">⚙ &nbsp; Настроить подключение</button></div>
+      <div class="connection-banner" id="connection-banner"><div class="banner-icon">⌁</div><div><strong id="banner-title">Подключите ваш MikroTik</strong><p id="banner-text">Настройте экспорт Traffic Flow, чтобы начать наблюдение за сетью.</p></div><button class="button light" id="banner-action">Начать настройку <span>→</span></button></div>
+      <div class="section-title"><div><h2>Состояние сети <span class="period">ПОСЛЕДНИЕ 5 МИНУТ</span></h2><p>Данные обновляются автоматически</p></div><span class="updated" id="updated">● &nbsp; Ожидание данных</span></div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-top">Объём трафика <span>↗</span></div><div class="metric-value" id="bytes">0 <small>Б</small></div><div class="metric-foot">Объём экспортированных потоков</div></div>
+        <div class="metric"><div class="metric-top">Потоки <span>⇄</span></div><div class="metric-value" id="flows">0</div><div class="metric-foot">Записей за последние 5 минут</div></div>
+        <div class="metric"><div class="metric-top">Источники <span>◉</span></div><div class="metric-value" id="hosts">0</div><div class="metric-foot">Активных IP-адресов</div></div>
+        <div class="metric"><div class="metric-top">Сигналы <span>⚑</span></div><div class="metric-value" id="alert-count">0</div><div class="metric-foot">Требуют внимания</div></div>
+      </div>
+      <div class="grid">
+        <div class="panel activity"><div class="panel-heading"><div><h3>Активность потоков</h3><p>Распределение записей за последние 5 минут</p></div><span class="pill">● &nbsp; LIVE</span></div><div id="chart" class="chart"></div><div class="chart-labels"><span>5 минут назад</span><span>Сейчас</span></div></div>
+        <div class="panel alerts"><div class="panel-heading"><div><h3>Сигналы безопасности</h3><p>Эвристики, требующие проверки</p></div><span class="count-badge" id="alert-badge">0</span></div><div id="alerts-list" class="list"></div></div>
+      </div>
+      <div class="panel hosts-panel"><div class="panel-heading"><div><h3>Активные источники</h3><p>Топ по объёму экспортированного трафика</p></div><span class="muted-label">ПОСЛЕДНИЕ 5 МИНУТ</span></div><div class="table-wrap"><table><thead><tr><th>IP-АДРЕС ИСТОЧНИКА</th><th>НАЗНАЧЕНИЯ</th><th>ПОТОКИ</th><th>ОБЪЁМ</th></tr></thead><tbody id="hosts-list"></tbody></table></div></div>
+      <div class="disclaimer">ⓘ &nbsp; Сигналы основаны на метаданных потоков и не доказывают заражение. Возможны ложные срабатывания.</div>
+    </section>
+    <section id="settings" class="view">
+      <div class="heading"><div><div class="eyebrow"><span></span> НАСТРОЙКА</div><h1>Подключение</h1><p>Подключите роутер и настройте экспорт сетевых потоков.</p></div></div>
+      <div class="settings-grid">
+        <div>
+          <div class="panel form-panel"><div class="step-heading"><span>01</span><div><h3>MikroTik RouterOS</h3><p>Проверка доступа к REST API RouterOS 7</p></div></div>
+            <div class="form-grid"><label>IPv4-адрес роутера<input id="address" placeholder="192.168.88.1" value="192.168.88.1" autocomplete="off"></label><label>Порт REST API<input id="api-port" type="number" min="1" max="65535" value="443"></label><label>Имя пользователя<input id="username" placeholder="Имя пользователя" autocomplete="off"></label><label>Пароль<input id="password" type="password" placeholder="Пароль" autocomplete="off"></label></div>
+            <label class="check"><input id="secure" type="checkbox" checked> Использовать HTTPS (www-ssl)</label><label class="check"><input id="self-signed" type="checkbox"> Доверять самоподписанному сертификату <span>небезопасно</span></label><p class="form-note">HTTP и отключение проверки сертификата раскрывают учётные данные при атаке в сети. Пароль не сохраняется.</p>
+            <button class="button secondary" id="test-router">Проверить подключение</button><div class="message" id="router-message" role="status"></div>
+          </div>
+          <div class="panel form-panel"><div class="step-heading"><span>02</span><div><h3>Приём потоков</h3><p>UDP-сборщик NetFlow v5, v9 и IPFIX</p></div></div><div class="form-grid"><label>UDP-порт сборщика<input id="flow-port" type="number" min="1" max="65535" value="2055"></label><div class="input-explain">Принимаются только пакеты с указанного выше IPv4-адреса роутера.</div></div><div class="actions"><button class="button primary" id="start">Запустить сбор</button><button class="button secondary" id="stop">Остановить</button><button class="button text-button" id="clear">Очистить данные</button></div><div class="message" id="collector-message" role="status"></div></div>
+        </div>
+        <div class="panel guide"><div class="guide-icon">↗</div><h3>Настройка Traffic Flow</h3><p>На MikroTik включите экспорт потоков и укажите IP этого компьютера в сети роутера.</p><div class="guide-step"><span>1</span><p>Узнайте локальный IPv4 компьютера, на котором запущен Net Control.</p></div><div class="guide-step"><span>2</span><p>В терминале RouterOS выполните команды, заменив <code>IP_КОМПЬЮТЕРА</code> на этот адрес и при необходимости изменив порт:</p></div><pre id="commands"></pre><div class="guide-step"><span>3</span><p>Разрешите входящий UDP-порт в брандмауэре Windows и нажмите «Запустить сбор».</p></div><div class="guide-note">Для проверки API включите на RouterOS 7 службу <b>www-ssl</b> и выдайте пользователю необходимые права. Экспорт потоков работает независимо от проверки API.</div></div>
+      </div>
+    </section>
+    <footer><span>NET CONTROL &nbsp; / &nbsp; ЛОКАЛЬНЫЙ МОНИТОРИНГ</span><span id="footer-status">Ожидание подключения</span></footer>
+  </main>
+</div>
+<script src="renderer.js"></script>
+</body>
+</html>
