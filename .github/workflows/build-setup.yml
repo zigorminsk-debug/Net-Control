@@ -13,6 +13,10 @@ on:
       - "v*"
   pull_request:
 
+# Разрешение для создания GitHub Release (job «Релиз при разметке tag»)
+permissions:
+  contents: write
+
 jobs:
   smoke-test:
     name: Проверка ядра (Linux)
