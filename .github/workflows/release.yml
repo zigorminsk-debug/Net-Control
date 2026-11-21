@@ -47,6 +47,10 @@ jobs:
         run: npm ci
       - if: steps.plan.outputs.publish == 'true'
         run: npm test
+      - name: Test native menu
+        if: steps.plan.outputs.publish == 'true'
+        shell: pwsh
+        run: ./scripts/test-native-menu.ps1
       - if: steps.plan.outputs.publish == 'true'
         run: npm run dist:win
       - if: steps.plan.outputs.publish == 'true'

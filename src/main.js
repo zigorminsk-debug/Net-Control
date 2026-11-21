@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, Menu } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { Collector } = require('./collector');
@@ -13,6 +13,7 @@ const { validatePolicy } = require('./security');
 const { ReputationStore } = require('./reputation');
 const { WorkspaceSettings } = require('./workspace-settings');
 const { NotificationTracker } = require('./notifications');
+const { createMenuTemplate } = require('./application-menu');
 const net = require('node:net');
 const collector = new Collector();
 let updates;
@@ -29,8 +30,19 @@ function deviceFor(ip, now = Date.now()) {
   if (Object.keys(collector.state.sources || {}).length > 1 || !leasesFetchedAt || leasesRouter !== collector.state.address || now - leasesFetchedAt > 5 * 60000) return null;
   const entry = leases.get(ip); return entry ? { ...entry, observedAt: leasesFetchedAt } : null;
 }
+let mainWindow = null;
+function sendMenuAction(action) {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) return;
+  const send = () => { if (!window.isDestroyed()) window.webContents.send('menu:action', action); };
+  // A menu item can be clicked while the renderer is loading.
+  if (window.webContents.isLoadingMainFrame()) window.webContents.once('did-finish-load', send);
+  else send();
+}
 function createWindow() {
   const window = new BrowserWindow({ width: 1440, height: 920, minWidth: 1000, minHeight: 700, backgroundColor: '#0b1015', title: 'Net Control', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  mainWindow = window;
+  window.on('closed', () => { if (mainWindow === window) mainWindow = null; });
   window.loadFile(path.join(__dirname, 'index.html'));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -194,6 +206,10 @@ app.whenReady().then(async () => {
   setInterval(() => { try { history.prune(); if (history.dirty) { history.flush(); historyError = ''; } } catch (err) { historyError = `Не удалось сохранить историю: ${err.message}`; } }, 30000);
   const { autoUpdater } = require('electron-updater');
   updates = createUpdateController({ updater: autoUpdater, packaged: app.isPackaged, platform: process.platform, version: app.getVersion() });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(createMenuTemplate(sendMenuAction, () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();
+  })));
   createWindow();
   if (app.isPackaged && process.platform === 'win32') {
     setTimeout(() => updates.check(), 10000);

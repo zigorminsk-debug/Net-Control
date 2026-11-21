@@ -481,3 +481,20 @@ function render(s) {
 }
 async function refresh() { const revision = ++refreshRevision; try { const data = await api.snapshot(hostSort); if (revision !== refreshRevision) return; render(data); const ip = selectedHost; if (ip) { const detail = await api.host(ip); if (revision === refreshRevision && selectedHost === ip) renderHost(detail); } const category = selectedCategory; if (category) { const detail = await api.category(category); if (revision === refreshRevision && selectedCategory === category) renderCategory(detail); } const threat = selectedThreat; if (threat) { const detail = await api.securityDetail(threat); if (revision === refreshRevision && selectedThreat === threat) renderThreat(detail); } } catch (err) { message('collector-message', err.message, true); } }
 refresh(); setInterval(refresh, 2000); refreshHistory(); setInterval(refreshHistory, 10000);
+
+// Native application-menu commands map to existing UI actions; never execute
+// strings as code or accept arbitrary element identifiers from the main process.
+function handleMenuAction(action) {
+  if (['dashboard', 'flow-search', 'settings', 'about'].includes(action)) { switchView(action); return; }
+  if (action === 'save-report') { switchView('dashboard'); $('save-report').click(); return; }
+  if (action === 'export-csv' || action === 'export-json') { switchView('flow-search'); $(action === 'export-csv' ? 'search-csv' : 'search-json').click(); return; }
+  if (action === 'check-updates') { switchView('about'); $('check-updates').click(); $('update-status').scrollIntoView?.({ block:'center' }); return; }
+  const helpTargets = { 'help-faq':'help-faq', 'help-guide':'help-guide', 'help-start':'guide-start', 'help-security':'guide-security', 'help-troubleshooting':'guide-troubleshooting', 'help-privacy':'guide-privacy' };
+  if (!Object.hasOwn(helpTargets, action)) return;
+  switchView('about');
+  const target = $(helpTargets[action]);
+  if (target.tagName === 'DETAILS') target.open = true;
+  target.scrollIntoView?.({ block:'start' });
+  (target.querySelector('summary') || target).focus();
+}
+api.onMenuAction(handleMenuAction);

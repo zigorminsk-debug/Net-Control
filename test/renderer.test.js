@@ -13,13 +13,14 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
   const a = new Analyzer(); a.setNetworks('10.0.0.0/24');
   a.add(Array.from({length:30}, (_,i) => ({src:'10.0.0.1',dst:`8.8.8.${i+1}`,srcPort:55000,dstPort:443,protocol:6,bytes:100,packets:1})));
   a.add([{src:'8.8.8.1',dst:'10.0.0.1',srcPort:443,dstPort:55000,protocol:6,bytes:50,packets:1}]);
-  let savedReview; const calls = []; const dom = new JSDOM(html, {runScripts:'outside-only'}); const win = dom.window;
+  let savedReview, menuAction, exportedFormat; const calls = []; const dom = new JSDOM(html, {runScripts:'outside-only'}); const win = dom.window;
   win.setInterval = () => 0;
   win.netControl = {
     device: async () => ({name:'',group:'',owner:'',note:''}),
     saveDevice: async () => ({}), review: async () => ({status:'new',note:''}), saveReview: async (type,ip,data) => { savedReview={type,ip,data}; return data; },
     notifications: async () => ({enabled:false,minimum:'medium',supported:true}), saveNotifications: async () => ({}),
-    searchFlows: async f => a.search(f), exportFlows: async () => ({ok:true,count:0,path:'export.csv'}),
+    onMenuAction: callback => { menuAction=callback; },
+    searchFlows: async f => a.search(f), exportFlows: async (_filter, format) => { exportedFormat=format; return {ok:true,count:0,path:'export.csv'}; },
     hostBindings: async () => ([]),
     hostHistory: async () => ({enabled:false,days:[]}),
     history: async () => ({enabled:false,events:[],eventCount:0,days:[]}),
@@ -47,6 +48,13 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
   try {
     win.eval(settings); win.eval(script); await settle(); await settle();
     const doc = win.document;
+    menuAction('help-faq'); assert.ok(doc.getElementById('about').classList.contains('active-view')); assert.equal(doc.activeElement.id,'help-faq');
+    assert.ok(doc.querySelectorAll('.faq-content details').length >= 8);
+    menuAction('help-troubleshooting'); assert.equal(doc.getElementById('guide-troubleshooting').open,true); assert.equal(doc.activeElement.tagName,'SUMMARY');
+    menuAction('export-csv'); await settle(); assert.ok(doc.getElementById('flow-search').classList.contains('active-view')); assert.equal(exportedFormat,'csv');
+    menuAction('settings'); assert.ok(doc.getElementById('settings').classList.contains('active-view'));
+    menuAction('dashboard'); assert.ok(doc.getElementById('dashboard').classList.contains('active-view'));
+    menuAction('unrecognized'); assert.ok(doc.getElementById('dashboard').classList.contains('active-view'));
     assert.match(doc.getElementById('commands').textContent, /dst-address=10\.0\.0\.50/);
     assert.match(doc.getElementById('directions-list').textContent, /Исходящий/);
     assert.equal(doc.querySelectorAll('#volume-chart .bar').length,30);

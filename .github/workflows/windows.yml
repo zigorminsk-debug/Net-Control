@@ -17,6 +17,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Test native menu
+        shell: pwsh
+        run: ./scripts/test-native-menu.ps1
       - name: Build installer
         id: build
         shell: cmd
