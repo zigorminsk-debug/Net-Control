@@ -46,3 +46,10 @@ test('reads only active DHCP leases, discards ambiguous IPs and uses the read-on
     assert.equal(requestPath,'/rest/ip/dhcp-server/lease'); assert.deepEqual(leases,[{ip:'10.0.0.5',name:'desktop',mac:'AA:BB:CC:DD:EE:FF'}]);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+test('Traffic Flow preflight only reads configuration and targets', async () => {
+  const {inspectTrafficFlow} = require('../src/router'); const requests=[];
+  const server=http.createServer((req,res)=>{requests.push([req.method,req.url]);res.setHeader('content-type','application/json');res.end(JSON.stringify(req.url.endsWith('/target') ? [{'dst-address':'10.0.0.2',port:'2055',version:'9',disabled:'false'}] : {enabled:'true',interfaces:'all'}));});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try { const result=await inspectTrafficFlow({address:'127.0.0.1',port:server.address().port,username:'u',password:'p',secure:false}); assert.equal(result.enabled,'true');assert.equal(result.targets[0].address,'10.0.0.2');assert.deepEqual(requests.sort(),[['GET','/rest/ip/traffic-flow'],['GET','/rest/ip/traffic-flow/target']].sort()); }
+  finally {await new Promise(resolve=>server.close(resolve));}
+});

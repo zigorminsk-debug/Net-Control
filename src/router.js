@@ -39,6 +39,14 @@ async function testRouter(options) {
   if (!data || Array.isArray(data) || typeof data !== 'object') throw new Error('Ответ не похож на RouterOS REST API.');
   return { version: String(data.version || 'неизвестно'), uptime: String(data.uptime || 'неизвестно'), board: String(data['board-name'] || 'MikroTik') };
 }
+async function inspectTrafficFlow(options) {
+  const [settings, targets] = await Promise.all([
+    requestJson(options, '/rest/ip/traffic-flow', 65536),
+    requestJson(options, '/rest/ip/traffic-flow/target', 262144)
+  ]);
+  if (!settings || Array.isArray(settings) || typeof settings !== 'object' || !Array.isArray(targets)) throw new Error('Ответ Traffic Flow имеет неожиданный формат.');
+  return { enabled:String(settings.enabled || 'unknown').slice(0,20), interfaces:String(settings.interfaces || 'unknown').slice(0,300), targets:targets.slice(0,100).map(row => ({ address:String(row['dst-address'] || row.address || '').slice(0,100), port:String(row.port || '').slice(0,10), version:String(row.version || '').slice(0,20), disabled:String(row.disabled || 'false').slice(0,10) })) };
+}
 async function readLeases(options) {
   const data = await requestJson(options, '/rest/ip/dhcp-server/lease', 2 * 1024 * 1024);
   if (!Array.isArray(data)) throw new Error('Ответ DHCP не является списком аренд.');
@@ -53,4 +61,4 @@ async function readLeases(options) {
   }
   return [...result.values()];
 }
-module.exports = { validateAddress, testRouter, readLeases, describeConnectionError };
+module.exports = { validateAddress, testRouter, readLeases, inspectTrafficFlow, describeConnectionError };

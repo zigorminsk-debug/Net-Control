@@ -50,3 +50,7 @@ test('NetFlow v9 reconstructs uptime-based timestamps from its export header', (
   const p=new FlowParser();p.parse(wrap(9,set(0,t)),'r');const msg=wrap(9,set(256,b));msg.writeUInt32BE(100000,4);msg.writeUInt32BE(1700000000,8);
   const [f]=p.parse(msg,'r');assert.equal(f.startTime,1699999950000);assert.equal(f.endTime,1699999990000);
 });
+test('diagnostics count unsupported, malformed and unknown-template sets', () => {
+  const p=new FlowParser(); p.parse(Buffer.alloc(0)); p.parse(Buffer.from([0,7])); p.parse(v5().subarray(0,10)); p.parse(wrap(9,set(256,record())),'r');
+  assert.equal(p.stats.unsupported,1); assert.equal(p.stats.malformed,2); assert.equal(p.stats.unknownTemplates,1); assert.equal(p.stats.versions[9],1);
+});

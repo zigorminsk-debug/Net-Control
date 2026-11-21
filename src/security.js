@@ -1,5 +1,5 @@
 'use strict';
-const { parseCidrs, direction, ipNumber } = require('./direction');
+const { parseCidrs, direction, containsIp } = require('./direction');
 const MINER_PORTS = new Set([3333, 4444, 5555, 7777, 14433, 14444]);
 const SMTP_PORTS = new Set([25, 465, 587]);
 const DEFAULTS = Object.freeze({ scanDestinations: 30, smtpDestinations: 10, minerRecords: 5, minerMinutes: 5, ddosPackets: 100000, ddosBytesMB: 20, ddosSources: 30, excluded: '', mailServers: '', poolAddresses: '' });
@@ -18,8 +18,7 @@ function validatePolicy(input = {}) {
   return result;
 }
 function contains(ip, networks) {
-  const n = ipNumber(ip);
-  return n !== null && networks.some(cidr => ((n & cidr.mask) >>> 0) === cidr.network);
+  return containsIp(ip, networks);
 }
 function isMailFlow(f) { return f.protocol === 6 && SMTP_PORTS.has(f.dstPort); }
 function isMinerFlow(f, pools) { return f.protocol === 6 && (MINER_PORTS.has(f.dstPort) || contains(f.dst, pools)); }

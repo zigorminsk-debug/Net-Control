@@ -1,9 +1,9 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { Collector } = require('./collector');
-const { testRouter, readLeases } = require('./router');
+const { testRouter, readLeases, inspectTrafficFlow } = require('./router');
 const { detectLocalAddress } = require('./local-address');
 const { buildReport } = require('./report');
 const { parseCidrs } = require('./direction');
@@ -11,18 +11,22 @@ const { createUpdateController } = require('./updater');
 const { History } = require('./history');
 const { validatePolicy } = require('./security');
 const { ReputationStore } = require('./reputation');
+const { WorkspaceSettings } = require('./workspace-settings');
+const { NotificationTracker } = require('./notifications');
 const net = require('node:net');
 const collector = new Collector();
 let updates;
 let history;
 let reputation;
+let workspaceSettings;
+const notificationTracker = new NotificationTracker();
 let reputationError = '';
 let historyError = '';
 let leases = new Map();
 let leasesFetchedAt = 0;
 let leasesRouter = '';
 function deviceFor(ip, now = Date.now()) {
-  if (!leasesFetchedAt || leasesRouter !== collector.state.address || now - leasesFetchedAt > 5 * 60000) return null;
+  if (Object.keys(collector.state.sources || {}).length > 1 || !leasesFetchedAt || leasesRouter !== collector.state.address || now - leasesFetchedAt > 5 * 60000) return null;
   const entry = leases.get(ip); return entry ? { ...entry, observedAt: leasesFetchedAt } : null;
 }
 function createWindow() {
@@ -47,7 +51,7 @@ ipcMain.handle('updates:install', async event => {
   try { return updates.install() ? { ok: true } : { ok: false, error: 'Обновление больше не готово к установке.' }; }
   catch (err) { return { ok: false, error: err.message }; }
 });
-ipcMain.handle('collector:start', (_event, options) => collector.start(options.address, Number(options.port)));
+ipcMain.handle('collector:start', (_event, options) => collector.start(options.address, Number(options.port), options.exporters || []));
 ipcMain.handle('collector:stop', () => { collector.stop(); return collector.snapshot(); });
 ipcMain.handle('collector:snapshot', (_event, sort) => {
   collector.analyzer.baselines = history.enabled ? history.baselines() : new Map();
@@ -57,11 +61,31 @@ ipcMain.handle('collector:snapshot', (_event, sort) => {
   return snapshot;
 });
 ipcMain.handle('collector:security-detail', (_event, id) => collector.analyzer.securityDetail(id));
+ipcMain.handle('collector:search', (_event, filter) => collector.analyzer.search(filter));
+ipcMain.handle('collector:export', async (event, filter, format) => {
+  if (!['csv','json'].includes(format)) return { ok:false, error:'Неизвестный формат.' };
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  if (!owner) return { ok:false, error:'Окно приложения не найдено.' };
+  try {
+    const result = collector.analyzer.search(filter, Date.now(), 50000);
+    const dialogResult = await dialog.showSaveDialog(owner, { title:'Экспорт отфильтрованных потоков', defaultPath:`net-control-flows.${format}`, filters:[{name:format.toUpperCase(), extensions:[format]}] });
+    if (dialogResult.canceled || !dialogResult.filePath) return { ok:false, canceled:true };
+    const data = format === 'json' ? JSON.stringify({ exportedAt:new Date().toISOString(), window:'5 minutes; reception time', filter, total:result.total, records:result.records }, null, 2) : require('./flow-export').toCsv(result.records);
+    await fs.writeFile(dialogResult.filePath, data, 'utf8');
+    return { ok:true, count:result.total, path:dialogResult.filePath };
+  } catch (err) { return { ok:false, error:err.message }; }
+});
 ipcMain.handle('collector:category', (_event, id) => collector.analyzer.categoryDetail(id));
 ipcMain.handle('collector:host', (_event, ip) => {
   if (typeof ip !== 'string' || !net.isIP(ip)) throw new Error('Некорректный IP-адрес хоста.');
   return { ...collector.analyzer.hostDetail(ip), device: deviceFor(ip) };
 });
+ipcMain.handle('workspace:device', (_event, ip) => workspaceSettings.device(ip));
+ipcMain.handle('workspace:save-device', (_event, ip, data) => workspaceSettings.saveDevice(ip, data));
+ipcMain.handle('workspace:review', (_event, type, ip) => workspaceSettings.review(type, ip));
+ipcMain.handle('workspace:save-review', (_event, type, ip, data) => workspaceSettings.saveReview(type, ip, data));
+ipcMain.handle('workspace:notifications', () => ({...workspaceSettings.data.notifications, supported:Notification.isSupported()}));
+ipcMain.handle('workspace:save-notifications', (_event, data) => workspaceSettings.setNotifications(data));
 ipcMain.handle('network:local-address', (_event, router) => detectLocalAddress(router));
 ipcMain.handle('reputation:status', () => ({ ...reputation.status(), error:reputationError }));
 ipcMain.handle('reputation:refresh', async () => {
@@ -85,7 +109,11 @@ ipcMain.handle('security:save-policy', async (_event, raw) => {
     return { ok:true, policy };
   } catch (err) { return { ok:false, error:err.message }; }
 });
+ipcMain.handle('history:host-days', (_event, ip) => history.hostDays(ip));
 ipcMain.handle('history:summary', () => ({ ...history.summary(), error:historyError }));
+ipcMain.handle('history:retention', (_event, days) => {
+  try { history.setRetentionDays(Number(days)); history.flush(); historyError=''; return {ok:true}; } catch (err) { historyError=err.message; return {ok:false,error:err.message}; }
+});
 ipcMain.handle('history:enabled', (_event, enabled) => {
   try { if (typeof enabled !== 'boolean') throw new Error('Некорректный параметр.'); history.setEnabled(enabled); history.flush(); historyError = ''; return {ok:true}; }
   catch (err) { historyError = err.message; return {ok:false, error:err.message}; }
@@ -127,6 +155,10 @@ ipcMain.handle('router:leases', async (_event, options) => {
     return { ok:true, count:items.length, observedAt:leasesFetchedAt };
   } catch (err) { return { ok:false, error:err.message }; }
 });
+ipcMain.handle('router:inspect-flow', async (_event, options) => {
+  try { return {ok:true, data:await inspectTrafficFlow({...options, port:Number(options.port)})}; }
+  catch (err) { return {ok:false, error:err.message}; }
+});
 ipcMain.handle('router:test', async (_event, options) => {
   try { return { ok: true, data: await testRouter({ ...options, port: Number(options.port) }) }; }
   catch (err) { return { ok: false, error: err.message }; }
@@ -140,6 +172,15 @@ app.whenReady().then(async () => {
     const policy = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'security-policy.json'), 'utf8'));
     collector.analyzer.setPolicy(policy);
   } catch (err) { if (err.code !== 'ENOENT') console.error('Cannot load security policy:', err.message); }
+  workspaceSettings = new WorkspaceSettings(path.join(app.getPath('userData'), 'workspace-settings.json'));
+  try { workspaceSettings.load(); } catch (err) { console.error('Cannot load workspace settings:', err.message); }
+  setInterval(() => {
+    try {
+      const options = workspaceSettings.data.notifications;
+      if (!options.enabled || !Notification.isSupported()) { notificationTracker.tick({running:false},options); return; }
+      for (const msg of notificationTracker.tick(collector.snapshot(),options)) new Notification(msg).show();
+    } catch (err) { console.error('Notification error:', err.message); }
+  }, 10000);
   reputation = new ReputationStore(path.join(app.getPath('userData'), 'reputation-cache.json'));
   try { reputation.load(); } catch (err) { reputationError = `Не удалось прочитать кэш: ${err.message}`; }
   collector.analyzer.reputation = reputation;

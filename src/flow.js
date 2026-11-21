@@ -61,18 +61,20 @@ function decode(fields, record, clock) {
   return { flow, consumed: p };
 }
 class FlowParser {
-  constructor() { this.templates = new Map(); }
+  constructor() { this.templates = new Map(); this.stats = { versions: {5:0,9:0,10:0}, unsupported:0, malformed:0, unknownTemplates:0 }; }
   parse(buf, exporter = '') {
-    if (!Buffer.isBuffer(buf) || buf.length < 2) return [];
+    if (!Buffer.isBuffer(buf) || buf.length < 2) { this.stats.malformed++; return []; }
     const version = buf.readUInt16BE(0);
+    if (version === 5 || version === 9 || version === 10) this.stats.versions[version]++;
+    else { this.stats.unsupported++; return []; }
     if (version === 5) return this.v5(buf);
     if (version === 9 || version === 10) return this.templated(buf, exporter, version);
     return [];
   }
   v5(buf) {
-    if (buf.length < 24) return [];
+    if (buf.length < 24) { this.stats.malformed++; return []; }
     const count = buf.readUInt16BE(2);
-    if (count > 30 || buf.length < 24 + count * 48) return [];
+    if (count > 30 || buf.length < 24 + count * 48) { this.stats.malformed++; return []; }
     const records = [];
     for (let i = 0; i < count; i++) {
       const p = 24 + i * 48;
@@ -92,9 +94,9 @@ class FlowParser {
   }
   templated(buf, exporter, version) {
     const header = version === 9 ? 20 : 16;
-    if (buf.length < header) return [];
+    if (buf.length < header) { this.stats.malformed++; return []; }
     const end = version === 10 ? buf.readUInt16BE(2) : buf.length;
-    if (end < header || end > buf.length) return [];
+    if (end < header || end > buf.length) { this.stats.malformed++; return []; }
     const domain = buf.readUInt32BE(version === 9 ? 16 : 12);
     const clock = version === 9 ? { uptime: buf.readUInt32BE(4), exportMs: buf.readUInt32BE(8) * 1000 } : null;
     const prefix = `${exporter}|${version}|${domain}|`;
@@ -103,7 +105,7 @@ class FlowParser {
     const records = [];
     for (let pos = header; pos + 4 <= end;) {
       const id = buf.readUInt16BE(pos), length = buf.readUInt16BE(pos + 2);
-      if (length < 4 || pos + length > end) break;
+      if (length < 4 || pos + length > end) { this.stats.malformed++; break; }
       let p = pos + 4; const setEnd = pos + length;
       const isTemplate = id === (version === 9 ? 0 : 2);
       if (isTemplate) {
@@ -132,6 +134,7 @@ class FlowParser {
         }
       } else if (id >= 256) {
         const template = this.templates.get(prefix + id);
+        if (!template) this.stats.unknownTemplates++;
         if (template) {
           while (p < setEnd && records.length < MAX_RECORDS) {
             const result = decode(template.fields, buf.subarray(p, setEnd), clock);

@@ -1,6 +1,6 @@
 'use strict';
 const { addCategory, categoryList, classify, CATEGORIES } = require('./traffic-classifier');
-const { parseCidrs, direction, emptyDirections } = require('./direction');
+const { parseCidrs, direction, emptyDirections, ipv6Number } = require('./direction');
 const { analyze, validatePolicy, isMailFlow, isMinerFlow } = require('./security');
 const WINDOW_MS = 5 * 60 * 1000;
 const MAX_FLOWS = 50000;
@@ -52,7 +52,7 @@ class Analyzer {
     }
     return Object.fromEntries(Object.entries(groups).map(([key, ips]) => [key, ips.size]));
   }
-  securityDetail(id, now = Date.now()) {
+  securityDetail(id, now = Date.now(), limit = 200) {
     const types = { miner:['Возможный майнинг'], spam:['Возможный спам'], ddos:['Возможный исходящий DDoS','Возможная входящая атака'], reputation:['Совпадение с репутационной базой'] };
     if (!Object.hasOwn(types, id)) throw new Error('Неизвестный тип сигнала.');
     this.prune(now);
@@ -77,7 +77,34 @@ class Analyzer {
       count++; totalBytes += f.bytes; host.bytes += f.bytes; host.flows++; host.peers.add(dir === 'outgoing' ? f.dst : f.src);
       records.push({ ...f, localHost:ip, direction:dir, evidence: id === 'reputation' && this.reputation ? this.reputation.match(dir === 'outgoing' ? f.dst : f.src).join(', ') : '' });
     }
-    return { id, hostCount:byHost.size, count, bytes:totalBytes, hosts:[...byHost.values()].sort((a,b)=>b.bytes-a.bytes).slice(0,100).map(h => ({ip:h.ip, bytes:h.bytes, flows:h.flows, peers:h.peers.size, alerts:h.alerts})), records:records.slice(-200).reverse() };
+    return { id, hostCount:byHost.size, count, bytes:totalBytes, hosts:[...byHost.values()].sort((a,b)=>b.bytes-a.bytes).slice(0,100).map(h => ({ip:h.ip, bytes:h.bytes, flows:h.flows, peers:h.peers.size, alerts:h.alerts})), records:records.slice(-limit).reverse() };
+  }
+  search(raw = {}, now = Date.now(), limit = 200) {
+    this.prune(now);
+    if (!raw || typeof raw !== 'object') throw new Error('Некорректный фильтр.');
+    const ip = String(raw.ip || '').trim(), port = String(raw.port || '').trim();
+    const exporter = String(raw.exporter || '').trim();
+    const protocol = String(raw.protocol || ''), dir = String(raw.direction || ''), category = String(raw.category || ''), threat = String(raw.threat || '');
+    if (exporter && require('node:net').isIP(exporter) !== 4) throw new Error('Укажите корректный IPv4 экспортёра.');
+    if (ip && (!require('node:net').isIP(ip) || (require('node:net').isIP(ip) === 6 && ipv6Number(ip) === null))) throw new Error('Укажите корректный IP-адрес.');
+    if (port && (!/^\d{1,5}$/.test(port) || Number(port) > 65535)) throw new Error('Укажите порт от 0 до 65535.');
+    if (protocol && !['6','17','1','58'].includes(protocol)) throw new Error('Неизвестный протокол.');
+    if (dir && !['incoming','outgoing','internal','transit','unknown'].includes(dir)) throw new Error('Неизвестное направление.');
+    if (category && !Object.hasOwn(CATEGORIES, category)) throw new Error('Неизвестная категория.');
+    if (threat && !['miner','spam','ddos','reputation'].includes(threat)) throw new Error('Неизвестный сигнал.');
+    const source = threat ? this.securityDetail(threat, now, MAX_FLOWS).records : [...this.flows].reverse();
+    const matches = [];
+    for (const f of source) {
+      const d = direction(f, this.networks), c = classify(f);
+      if (exporter && f.exporter !== exporter) continue;
+      if (ip && f.src !== ip && f.dst !== ip && !(require('node:net').isIP(ip) === 6 && (ipv6Number(f.src) === ipv6Number(ip) || ipv6Number(f.dst) === ipv6Number(ip)))) continue;
+      if (port && f.srcPort !== Number(port) && f.dstPort !== Number(port)) continue;
+      if (protocol && f.protocol !== Number(protocol)) continue;
+      if (dir && d !== dir) continue;
+      if (category && c.id !== category) continue;
+      matches.push({ ...f, direction:d, category:c.label, categoryId:c.id });
+    }
+    return { total:matches.length, records:matches.slice(0, Math.max(0, Math.min(MAX_FLOWS, limit))) };
   }
   categoryDetail(id, now = Date.now()) {
     if (!Object.hasOwn(CATEGORIES, id)) throw new Error('Неизвестный тип трафика.');

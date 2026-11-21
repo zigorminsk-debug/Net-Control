@@ -13,9 +13,14 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
   const a = new Analyzer(); a.setNetworks('10.0.0.0/24');
   a.add(Array.from({length:30}, (_,i) => ({src:'10.0.0.1',dst:`8.8.8.${i+1}`,srcPort:55000,dstPort:443,protocol:6,bytes:100,packets:1})));
   a.add([{src:'8.8.8.1',dst:'10.0.0.1',srcPort:443,dstPort:55000,protocol:6,bytes:50,packets:1}]);
-  const calls = []; const dom = new JSDOM(html, {runScripts:'outside-only'}); const win = dom.window;
+  let savedReview; const calls = []; const dom = new JSDOM(html, {runScripts:'outside-only'}); const win = dom.window;
   win.setInterval = () => 0;
   win.netControl = {
+    device: async () => ({name:'',group:'',owner:'',note:''}),
+    saveDevice: async () => ({}), review: async () => ({status:'new',note:''}), saveReview: async (type,ip,data) => { savedReview={type,ip,data}; return data; },
+    notifications: async () => ({enabled:false,minimum:'medium',supported:true}), saveNotifications: async () => ({}),
+    searchFlows: async f => a.search(f), exportFlows: async () => ({ok:true,count:0,path:'export.csv'}),
+    hostHistory: async () => ({enabled:false,days:[]}),
     history: async () => ({enabled:false,events:[],eventCount:0,days:[]}),
     reputation: async () => ({enabled:true,feeds:[]}),
     securityDetail: async id => a.securityDetail(id),
@@ -25,6 +30,7 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
     policy: async () => a.policy,
     category: async id => a.categoryDetail(id),
     savePolicy: async policy => ({ok:true,policy:a.setPolicy(policy)}),
+    setHistoryRetention: async () => ({ok:true}),
     enableHistory: async () => ({ok:true}),
     clearHistory: async () => ({ok:true}),
     updateStatus: async () => ({status:'up-to-date',currentVersion:'1.1.0'}),
@@ -44,9 +50,13 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
     assert.match(doc.getElementById('directions-list').textContent, /Исходящий/);
     assert.equal(doc.querySelectorAll('#volume-chart .bar').length,30);
     assert.ok(doc.querySelector('#top-host-chart button.host-link'));
+    doc.querySelector('[data-view=flow-search]').click(); doc.getElementById('search-ip').value='10.0.0.1'; doc.getElementById('search-run').click(); await settle(); assert.match(doc.getElementById('search-status').textContent, /Найдено: 31/); assert.equal(doc.querySelectorAll('#search-results tr').length,31);
+    doc.querySelector('[data-view=dashboard]').click();
+    a.add(Array.from({length:5},()=>({src:'10.0.0.2',dst:'8.8.4.4',srcPort:55000,dstPort:3333,protocol:6,bytes:100,packets:1})));
     doc.querySelector('[data-threat=miner]').click(); await settle();
     assert.ok(doc.getElementById('threat-detail').classList.contains('active-view'));
-    assert.equal(doc.getElementById('threat-host-count').textContent,'0');
+    assert.equal(doc.getElementById('threat-host-count').textContent,'1');
+    doc.querySelector('#threat-hosts button.text-button').click(); await settle(); doc.getElementById('review-status').value='investigating'; doc.getElementById('review-note').value='checking'; doc.getElementById('review-save').click(); await settle(); assert.deepEqual(JSON.parse(JSON.stringify(savedReview)), {type:'miner',ip:'10.0.0.2',data:{status:'investigating',note:'checking'}});
     doc.getElementById('back-threat').click();
     assert.ok(doc.querySelector('#alerts-list button.host-link'));
     doc.querySelector('#categories-list .category-item').click(); await settle();
