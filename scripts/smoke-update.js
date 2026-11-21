@@ -3,6 +3,7 @@
 // with the previous version simulated via an isolated AppAdapter. Never install.
 const { app } = require('electron');
 const { NsisUpdater } = require('electron-updater');
+const { ElectronHttpExecutor } = require('electron-updater/out/electronHttpExecutor');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -22,6 +23,9 @@ async function run() {
   if (process.platform !== 'win32' || !adapter.version) throw new Error('Windows and SMOKE_PREVIOUS_VERSION are required.');
   await app.whenReady();
   const updater = new NsisUpdater(undefined, adapter);
+  // The custom AppAdapter disables the default executor in electron-updater.
+  // Restore the normal Electron network implementation for this isolated test.
+  updater.httpExecutor = new ElectronHttpExecutor((auth, callback) => updater.emit('login', auth, callback));
   const controller = createUpdateController({ updater, packaged:true, platform:'win32', version:adapter.version });
   let finish, fail;
   const downloaded = new Promise((resolve,reject) => { finish=resolve; fail=reject; });
