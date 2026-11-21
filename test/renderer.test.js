@@ -72,6 +72,8 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
     assert.equal(doc.getElementById('host-title').textContent,'10.0.0.1');
     assert.ok(doc.getElementById('host-detail').classList.contains('active-view'));
     assert.match(doc.getElementById('host-in-bytes').textContent,/50 Б/);
+    assert.ok(doc.querySelector('#host-graph svg g[role=button]'));
+    assert.ok(doc.querySelector('#host-links button.host-link'));
     assert.equal(doc.querySelectorAll('#host-records tr').length,31);
     doc.getElementById('back-dashboard').click();
     doc.querySelector('[data-view=about]').click();

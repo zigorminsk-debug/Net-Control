@@ -9,6 +9,7 @@ let securityPolicy = null;
 let reputationLoaded = false;
 let reputationStatus = null;
 let historyLoaded = false;
+let lastHistory = null;
 let manualLocal = false;
 let detectRevision = 0;
 let hostSort = { by: 'bytes', direction: 'desc' };
@@ -202,9 +203,17 @@ $('clear-history').addEventListener('click', async () => {
   try { const result = await api.clearHistory(); if (!result.ok) throw new Error(result.error); message('history-message', 'История очищена.'); await refreshHistory(); }
   catch (err) { message('history-message', `Ошибка: ${err.message}`, true); }
 });
+function renderCategoryHistory() {
+  const category=$('history-category').value;
+  const days=lastHistory?.days || [];
+  const entries=days.slice(0,14).reverse().filter(d=>d.categories && Object.hasOwn(d.categories,category)).map(d=>({label:new Date(d.time).toISOString().slice(0,10), value:d.categories[category].bytes, flows:d.categories[category].flows}));
+  renderRankChart('category-history-chart',entries,false,'Нет сохранённых данных этой категории.');
+}
+$('history-category').addEventListener('change',renderCategoryHistory);
 async function refreshHistory() {
   try {
     const data = await api.history();
+    lastHistory = data; renderCategoryHistory();
     if (!historyLoaded) { $('history-enabled').checked = data.enabled; $('history-retention').value = data.retentionDays || 7; historyLoaded = true; }
     $('history-note').textContent = data.error ? `Ошибка истории: ${data.error}` : `${data.enabled ? 'Запись включена' : 'Запись выключена'} · ${data.eventCount} событий · показаны последние ${data.events.length}. Карточка IP показывает только текущее окно.`;
     renderRankChart('daily-chart', data.days.slice(0, 14).reverse().map(d => ({ label: new Date(d.time).toISOString().slice(0,10), value:d.bytes, flows:d.flows })), false, data.enabled ? 'Пока нет сохранённых данных по дням.' : 'История выключена; сохранённые данные отсутствуют.');
@@ -386,6 +395,21 @@ function renderCategory(s) {
     textCell(row, f.evidence); textCell(row, formatBytes(f.bytes)); records.appendChild(row);
   }
 }
+function renderPeerGraph(ip, peers) {
+  const root=$('host-graph'); root.replaceChildren(); if (!peers.length) return;
+  const ns='http://www.w3.org/2000/svg', svg=document.createElementNS(ns,'svg');
+  svg.setAttribute('viewBox','0 0 900 440'); svg.setAttribute('role','img'); svg.setAttribute('aria-label',`Связи хоста ${ip}, до десяти контрагентов`);
+  const element=(tag,attrs)=>{const el=document.createElementNS(ns,tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k,v); return el;};
+  const max=Math.max(1,...peers.map(p=>p.bytes));
+  peers.forEach((peer,index)=>{
+    const angle=2*Math.PI*index/peers.length-Math.PI/2, x=450+290*Math.cos(angle), y=220+165*Math.sin(angle);
+    const edge=element('line',{x1:450,y1:220,x2:x,y2:y,stroke:'#4fa379','stroke-width':1+6*peer.bytes/max,opacity:0.65}); svg.appendChild(edge);
+    const group=element('g',{role:'button',tabindex:'0','aria-label':`Открыть ${peer.ip}: ${formatBytes(peer.bytes)}`});
+    const circle=element('circle',{cx:x,cy:y,r:10,fill:'#70d6a0'}); const label=element('text',{x,y:y-17,'text-anchor':'middle',fill:'#cde2d8','font-size':'13'}); label.textContent=peer.ip;
+    group.append(circle,label); group.addEventListener('click',()=>openHost(peer.ip)); group.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openHost(peer.ip);}}); svg.appendChild(group);
+  });
+  svg.appendChild(element('circle',{cx:450,cy:220,r:16,fill:'#d6fff0'})); const center=element('text',{x:450,y:255,'text-anchor':'middle',fill:'#effff8','font-size':'14'}); center.textContent=ip; svg.appendChild(center); root.appendChild(svg);
+}
 function renderHost(s) {
   $('host-title').textContent = s.ip;
   $('host-device').textContent = s.device ? `Текущая DHCP-аренда: ${s.device.name || 'имя не указано'} · ${s.device.mac || 'MAC не указан'} · получена ${new Date(s.device.observedAt).toLocaleString('ru-RU')}; не доказывает владельца IP в прошлом.` : 'Данные DHCP не загружены или старше 5 минут.';
@@ -396,6 +420,7 @@ function renderHost(s) {
   $('host-out-flows').textContent = `${s.outgoing} потоков`; $('host-in-flows').textContent = `${s.incoming} потоков`;
   $('host-record-note').textContent = `Показано ${s.records.length} из ${s.count} записей за 5 минут (не более 200)`;
   renderCategories('host-categories', s.categories);
+  renderPeerGraph(s.ip, s.topPeers);
   renderRankChart('host-links', s.topPeers.map(p=>({label:p.ip,value:p.bytes,flows:p.flows})), true, 'Нет связей за текущее окно.');
   const tbody = $('host-records'); tbody.replaceChildren();
   if (!s.records.length) { const row = document.createElement('tr'); const cell = textCell(row, 'Нет записей за последние 5 минут'); cell.colSpan = 7; cell.className = 'empty'; tbody.appendChild(row); }

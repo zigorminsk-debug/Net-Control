@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const { direction } = require('./direction');
+const { classify } = require('./traffic-classifier');
 const DAY = 86400000, WINDOW = 300000, MAX_BUCKETS = 100000, MAX_EVENTS = 10000;
 class History {
   constructor(path) { this.path = path; this.enabled = false; this.retentionDays = 7; this.buckets = new Map(); this.days = new Map(); this.events = new Map(); this.dirty = false; this.lastPrune = 0; this.baselineCache = null; }
@@ -24,6 +25,9 @@ class History {
     let d = this.days.get(day); if (!d) { d = { time: day, bytes: 0, packets: 0, flows: 0 }; this.days.set(day, d); }
     for (const f of flows) {
       d.bytes += f.bytes; d.packets += f.packets; d.flows++;
+      if (!d.categories || typeof d.categories !== 'object' || Array.isArray(d.categories)) d.categories={};
+      const category=classify(f).id; if (!d.categories[category]) d.categories[category]={bytes:0,flows:0};
+      d.categories[category].bytes+=f.bytes; d.categories[category].flows++;
       if (direction(f, networks) !== 'outgoing') continue;
       const key = `${window}|${f.src}`;
       let b = this.buckets.get(key); if (!b) { b = { time: window, ip: f.src, bytes: 0, packets: 0, flows: 0 }; this.buckets.set(key, b); }
