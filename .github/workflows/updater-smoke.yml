@@ -1,0 +1,29 @@
+name: Verify published updater
+on:
+  push:
+    branches: ['**']
+permissions:
+  contents: read
+jobs:
+  updater-smoke:
+    if: contains(github.event.head_commit.message, '[verify-update]')
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:win
+      - run: node scripts/verify-update.js
+      - name: Check and download using the Electron updater
+        shell: pwsh
+        env:
+          SMOKE_PREVIOUS_VERSION: '1.3.0'
+        run: |
+          $process = Start-Process -FilePath (Resolve-Path 'node_modules/electron/dist/electron.exe') -ArgumentList (Resolve-Path 'scripts/smoke-update.js') -Wait -PassThru -RedirectStandardOutput smoke-out.txt -RedirectStandardError smoke-err.txt
+          Get-Content smoke-out.txt
+          Get-Content smoke-err.txt
+          if ($process.ExitCode -ne 0) { throw "Electron updater smoke test failed: $($process.ExitCode)" }
