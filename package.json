@@ -1,0 +1,60 @@
+{
+  "name": "net-control",
+  "version": "1.4.0",
+  "description": "Локальный анализ потоков MikroTik",
+  "main": "src/main.js",
+  "author": "Net Control",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "dist:win": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^35.7.5",
+    "electron-builder": "^26.0.12",
+    "js-yaml": "^4.3.2",
+    "jsdom": "^31.0.1"
+  },
+  "build": {
+    "appId": "com.netcontrol.desktop",
+    "productName": "Net Control",
+    "compression": "store",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "setup.exe"
+    },
+    "nsis": {
+      "warningsAsErrors": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zigorminsk-debug",
+        "repo": "Net-Control",
+        "private": false
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
+  }
+}
