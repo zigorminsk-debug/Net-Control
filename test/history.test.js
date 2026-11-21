@@ -29,3 +29,11 @@ test('configurable retention and host daily summary keep existing history opt in
   const loaded=new History(file);loaded.load(now);assert.equal(loaded.retentionDays,3);assert.throws(()=>loaded.setRetentionDays(31));loaded.prune(now+4*DAY); assert.equal(loaded.hostDays('10.0.0.1',now+4*DAY).days.length,0);
  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('DHCP snapshots are opt-in, persistent, bounded by retention and cleared with history', () => {
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'netcontrol-leases-')); try {
+  const file=path.join(dir,'h'), h=new History(file), now=Date.now(), items=[{ip:'10.0.0.1',name:'desktop',mac:'aa'}];
+  h.captureLeases('10.0.0.254',items,now);assert.equal(h.hostBindings('10.0.0.1',now).length,0);
+  h.setEnabled(true);h.captureLeases('10.0.0.254',items,now);h.flush();const copy=new History(file);copy.load(now);assert.equal(copy.hostBindings('10.0.0.1',now)[0].router,'10.0.0.254');
+  assert.equal(copy.hostBindings('10.0.0.1',now+8*DAY).length,0);copy.captureLeases('10.0.0.254',items,now+8*DAY);copy.clear();assert.equal(copy.hostBindings('10.0.0.1',now+8*DAY).length,0);
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});

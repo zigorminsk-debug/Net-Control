@@ -4,7 +4,7 @@ const { direction } = require('./direction');
 const { classify } = require('./traffic-classifier');
 const DAY = 86400000, WINDOW = 300000, MAX_BUCKETS = 100000, MAX_EVENTS = 10000;
 class History {
-  constructor(path) { this.path = path; this.enabled = false; this.retentionDays = 7; this.buckets = new Map(); this.days = new Map(); this.events = new Map(); this.dirty = false; this.lastPrune = 0; this.baselineCache = null; }
+  constructor(path) { this.path = path; this.enabled = false; this.retentionDays = 7; this.buckets = new Map(); this.days = new Map(); this.events = new Map(); this.bindings = []; this.dirty = false; this.lastPrune = 0; this.baselineCache = null; }
   load(now = Date.now()) {
     try {
       const data = JSON.parse(fs.readFileSync(this.path, 'utf8'));
@@ -13,6 +13,7 @@ class History {
       if (Number.isInteger(data.retentionDays) && data.retentionDays >= 1 && data.retentionDays <= 30) this.retentionDays = data.retentionDays;
       for (const b of (Array.isArray(data.buckets) ? data.buckets : []).slice(-MAX_BUCKETS)) if (typeof b.ip === 'string' && Number.isFinite(b.time) && Number.isFinite(b.bytes)) this.buckets.set(`${b.time}|${b.ip}`, b);
       for (const d of (Array.isArray(data.days) ? data.days : []).slice(-31)) if (Number.isFinite(d.time)) this.days.set(d.time, d);
+      this.bindings = (Array.isArray(data.bindings) ? data.bindings : []).filter(x=>x && typeof x.ip==='string' && Number.isFinite(x.time)).slice(-5000);
       for (const e of (Array.isArray(data.events) ? data.events : []).slice(-MAX_EVENTS)) if (typeof e.key === 'string' && Number.isFinite(e.time)) this.events.set(e.key, e);
       this.prune(now);
     } catch (err) { if (err.code !== 'ENOENT') throw err; }
@@ -46,6 +47,19 @@ class History {
     }
     while (this.events.size > MAX_EVENTS) this.events.delete(this.events.keys().next().value);
   }
+  captureLeases(router, items, now = Date.now()) {
+    if (!this.enabled || require('node:net').isIP(router) !== 4 || !Array.isArray(items)) return;
+    for (const item of items) {
+      if (require('node:net').isIP(item.ip) !== 4) continue;
+      this.bindings.push({router,ip:item.ip,name:String(item.name || '').slice(0,100),mac:String(item.mac || '').slice(0,30),time:now});
+    }
+    if (this.bindings.length>5000) this.bindings.splice(0,this.bindings.length-5000);
+    this.prune(now); this.dirty=true;
+  }
+  hostBindings(ip, now = Date.now()) {
+    if (!require('node:net').isIP(ip)) throw new Error('Некорректный IP.');
+    this.prune(now); return this.bindings.filter(b=>b.ip===ip).slice(-100).reverse();
+  }
   baselines(now = Date.now()) {
     if (this.baselineCache && now >= this.baselineCache.time && now - this.baselineCache.time < 30000) return this.baselineCache.value;
     const currentWindow = Math.floor(now / WINDOW) * WINDOW; const map = new Map();
@@ -60,13 +74,14 @@ class History {
     return result;
   }
   prune(now = Date.now()) {
-    const previous = this.buckets.size + this.days.size + this.events.size;
+    const previous = this.buckets.size + this.days.size + this.events.size + this.bindings.length;
     for (const [key, b] of this.buckets) if (b.time < now - this.retentionDays * DAY) this.buckets.delete(key);
     for (const [key, d] of this.days) if (d.time < now - 30 * DAY) this.days.delete(key);
     for (const [key, e] of this.events) if (e.time < now - this.retentionDays * DAY) this.events.delete(key);
+    this.bindings = this.bindings.filter(b => b.time >= now - this.retentionDays * DAY);
     while (this.buckets.size > MAX_BUCKETS) this.buckets.delete(this.buckets.keys().next().value);
     while (this.events.size > MAX_EVENTS) this.events.delete(this.events.keys().next().value);
-    if (previous !== this.buckets.size + this.days.size + this.events.size) { this.dirty = true; this.baselineCache = null; }
+    if (previous !== this.buckets.size + this.days.size + this.events.size + this.bindings.length) { this.dirty = true; this.baselineCache = null; }
   }
   hostDays(ip, now = Date.now()) {
     if (!require('node:net').isIP(ip)) throw new Error('Некорректный IP.');
@@ -83,13 +98,13 @@ class History {
     this.prune(now);
     return { enabled:this.enabled, retentionDays:this.retentionDays, bucketCount:this.buckets.size, days:[...this.days.values()].sort((a,b)=>b.time-a.time), events:[...this.events.values()].sort((a,b)=>b.time-a.time).slice(0, 100), eventCount:this.events.size };
   }
-  clear() { this.events.clear(); this.buckets.clear(); this.days.clear(); this.baselineCache = null; this.dirty = true; }
+  clear() { this.bindings=[]; this.events.clear(); this.buckets.clear(); this.days.clear(); this.baselineCache = null; this.dirty = true; }
   flush() {
     if (!this.dirty) return;
     this.prune();
     fs.mkdirSync(require('node:path').dirname(this.path), { recursive:true });
     const tmp = `${this.path}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ version:1, enabled:this.enabled, retentionDays:this.retentionDays, buckets:[...this.buckets.values()], days:[...this.days.values()], events:[...this.events.values()] }), { encoding:'utf8', mode:0o600 });
+    fs.writeFileSync(tmp, JSON.stringify({ version:1, enabled:this.enabled, retentionDays:this.retentionDays, buckets:[...this.buckets.values()], days:[...this.days.values()], events:[...this.events.values()], bindings:this.bindings }), { encoding:'utf8', mode:0o600 });
     fs.renameSync(tmp, this.path); this.dirty = false;
   }
 }

@@ -109,6 +109,7 @@ ipcMain.handle('security:save-policy', async (_event, raw) => {
     return { ok:true, policy };
   } catch (err) { return { ok:false, error:err.message }; }
 });
+ipcMain.handle('history:host-bindings', (_event, ip) => history.hostBindings(ip));
 ipcMain.handle('history:host-days', (_event, ip) => history.hostDays(ip));
 ipcMain.handle('history:summary', () => ({ ...history.summary(), error:historyError }));
 ipcMain.handle('history:retention', (_event, days) => {
@@ -152,6 +153,7 @@ ipcMain.handle('router:leases', async (_event, options) => {
   try {
     const items = await readLeases({ ...options, port: Number(options.port) });
     leases = new Map(items.map(item => [item.ip, item])); leasesFetchedAt = Date.now(); leasesRouter = options.address;
+    history.captureLeases(options.address, items, leasesFetchedAt);
     return { ok:true, count:items.length, observedAt:leasesFetchedAt };
   } catch (err) { return { ok:false, error:err.message }; }
 });

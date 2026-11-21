@@ -271,8 +271,13 @@ function hostButton(ip) {
 async function openHost(ip) {
   selectedHost = ip; $('host-title').textContent = ip; switchView('host-detail');
   for (const key of ['name','group','owner','note']) $(`device-${key}`).value = ''; message('device-status', '');
-  try { const [data, device, history] = await Promise.all([api.host(ip),api.device(ip),api.hostHistory(ip)]); if (selectedHost === ip) { renderHost(data); renderHostHistory(history); for (const key of ['name','group','owner','note']) $(`device-${key}`).value = device[key]; } }
+  try { const [data, device, history, bindings] = await Promise.all([api.host(ip),api.device(ip),api.hostHistory(ip),api.hostBindings(ip)]); if (selectedHost === ip) { renderHost(data); renderHostHistory(history); renderBindings(bindings); for (const key of ['name','group','owner','note']) $(`device-${key}`).value = device[key]; } }
   catch (err) { $('host-record-note').textContent = `Ошибка: ${err.message}`; }
+}
+function renderBindings(bindings) {
+  const root=$('host-bindings'); root.replaceChildren();
+  if (!bindings.length) { const el=document.createElement('p'); el.className='empty'; el.textContent='Нет сохранённых снимков.'; root.appendChild(el); return; }
+  for (const b of bindings) {const el=document.createElement('p'); el.textContent=`${new Date(b.time).toLocaleString('ru-RU')} · роутер ${b.router} · ${b.name || 'без имени'} · ${b.mac || 'без MAC'}`; root.appendChild(el);}
 }
 function renderHostHistory(history) {
   renderRankChart('host-history-chart', history.days.map(d=>({label:new Date(d.time).toISOString().slice(0,10),value:d.bytes,flows:d.flows})), false, history.enabled ? 'Нет сохранённых исходящих агрегатов.' : 'История выключена; сохранённых данных нет.');

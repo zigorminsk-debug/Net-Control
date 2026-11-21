@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('netControl', {
   enableReputation: enabled => ipcRenderer.invoke('reputation:enabled', enabled),
   clearReputation: () => ipcRenderer.invoke('reputation:clear'),
   securityDetail: id => ipcRenderer.invoke('collector:security-detail', id),
+  hostBindings: ip => ipcRenderer.invoke('history:host-bindings', ip),
   hostHistory: ip => ipcRenderer.invoke('history:host-days', ip),
   history: () => ipcRenderer.invoke('history:summary'),
   setHistoryRetention: days => ipcRenderer.invoke('history:retention', days),

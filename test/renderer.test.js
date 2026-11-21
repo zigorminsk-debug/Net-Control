@@ -20,6 +20,7 @@ test('UI detects address, sorts sources, opens alerts and exports report', async
     saveDevice: async () => ({}), review: async () => ({status:'new',note:''}), saveReview: async (type,ip,data) => { savedReview={type,ip,data}; return data; },
     notifications: async () => ({enabled:false,minimum:'medium',supported:true}), saveNotifications: async () => ({}),
     searchFlows: async f => a.search(f), exportFlows: async () => ({ok:true,count:0,path:'export.csv'}),
+    hostBindings: async () => ([]),
     hostHistory: async () => ({enabled:false,days:[]}),
     history: async () => ({enabled:false,events:[],eventCount:0,days:[]}),
     reputation: async () => ({enabled:true,feeds:[]}),
